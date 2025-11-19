@@ -17448,7 +17448,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB" "C1523"
+		(property "JLCPCB" " C12530"
 			(at 295.91 146.05 0)
 			(effects
 				(font
@@ -19869,7 +19869,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB" "C1523"
+		(property "JLCPCB" " C12530"
 			(at 287.02 146.05 0)
 			(effects
 				(font
