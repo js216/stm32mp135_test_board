@@ -12,6 +12,7 @@ SOURCES = \
 	 drivers/syscalls.c \
 	 drivers/irq_ctrl_gic.c \
 	 drivers/stm32mp13xx_hal.c \
+	 drivers/stm32mp13xx_hal_ddr.c \
 	 drivers/stm32mp13xx_hal_gpio.c \
 	 drivers/stm32mp13xx_hal_rcc.c \
 	 drivers/stm32mp13xx_hal_rcc_ex.c \
@@ -30,7 +31,8 @@ CFLAGS = \
 	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
 	 -fdata-sections -ffunction-sections \
 	 -nostartfiles \
-	 -ffreestanding
+	 -ffreestanding \
+	 -DDDR_TYPE_DDR3_4Gb
 
 LFLAGS = \
 	 -Wl,--gc-sections \
@@ -40,7 +42,7 @@ LFLAGS = \
 	 -specs=nano.specs -specs=nosys.specs \
 	 -nostartfiles \
 	 -ffreestanding \
-	 -Wl,--print-memory-usage \
+	 -Wl,--print-memory-usage
 
 .PHONY: all clean install check-port
 

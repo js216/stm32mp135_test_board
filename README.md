@@ -29,6 +29,14 @@ with debugging this board:
   described in more details
   [here](https://embd.cc/boot-stm32mp135-over-uart-with-python)).
 
+- `ddr_test`: Initialize DDR3L memory, fill it with pseudorandom bits, and
+  confirm that reading from the memory returns the same bit sequence.
+
+### Notes
+
+- No STPMIC1, direct external connections for power supplies
+- LSE (external 32.768 kHz) is not connected
+
 ### Author
 
 Jakob Kastelic, Stanford Research Systems
