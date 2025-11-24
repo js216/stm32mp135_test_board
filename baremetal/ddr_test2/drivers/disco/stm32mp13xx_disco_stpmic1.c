@@ -94,9 +94,7 @@ int32_t BSP_LED_Init(Led_TypeDef Led)
     gpio_init_structure.Mode = GPIO_MODE_OUTPUT_PP;
     gpio_init_structure.Pull = GPIO_PULLUP;
     gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    BSP_ENTER_CRITICAL_SECTION(LED_PORT[Led]);
     HAL_GPIO_Init(LED_PORT[Led], &gpio_init_structure);
-    BSP_EXIT_CRITICAL_SECTION(LED_PORT[Led]);
   }
 
   /* By default, turn off LED */
@@ -133,7 +131,6 @@ void BSP_Error_Handler(void)
   * @{
   */
 /* Driver for PMIC ---------------------------------------------------------------*/
-#if (USE_STPMIC1x == 1)
 #define NAME_LENGHT 15U
 
 /* Board Configuration ------------------------------------------------------------*/
@@ -1133,9 +1130,7 @@ static uint32_t BSP_PMIC_MspInit(I2C_HandleTypeDef *hi2c)
   GPIO_InitStruct.Pull      = GPIO_PULLUP; //GPIO_NOPULL;
   GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
   GPIO_InitStruct.Alternate = 0U;
-  BSP_ENTER_CRITICAL_SECTION(PMIC_INTn_PORT);
   HAL_GPIO_Init(PMIC_INTn_PORT, &GPIO_InitStruct);
-  BSP_EXIT_CRITICAL_SECTION(PMIC_INTn_PORT);
 
   /* Enable and set INTn EXTI Interrupt  */
 #if defined(CORE_CA7)
@@ -1162,9 +1157,7 @@ static uint32_t BSP_PMIC_MspDeInit(I2C_HandleTypeDef *hi2c)
 #if defined(CORE_CA7)
   IRQ_Disable((IRQn_ID_t)PMIC_INTn_EXTI_IRQ);
 #endif
-  BSP_ENTER_CRITICAL_SECTION(PMIC_INTn_PORT);
   HAL_GPIO_DeInit(PMIC_INTn_PORT,PMIC_INTn_PIN);
-  BSP_EXIT_CRITICAL_SECTION(PMIC_INTn_PORT);
 
   return status;
 }
@@ -1384,19 +1377,3 @@ void BSP_PMIC_INTn_IRQHandler(void)
 
   STPMU1_IrqHandler();
 }
-
-#else
-#warning PMIC Board config not defined !!!
-#endif
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */

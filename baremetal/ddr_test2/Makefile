@@ -9,9 +9,7 @@ SOURCES = \
 	 src/ddr_tool_util.c \
 	 src/main.c \
 	 src/stm32mp13xx_hal_msp.c \
-	 src/stm32mp13xx_it.c \
 	 src/syscalls.c \
-	 src/system_time.c \
 	 drivers/hal/stm32mp13xx_hal.c \
 	 drivers/hal/stm32mp13xx_hal_ddr.c \
 	 drivers/hal/stm32mp13xx_hal_dma.c \

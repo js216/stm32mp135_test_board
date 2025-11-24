@@ -2,7 +2,6 @@
 #define STM32MP13XX_DISCO_BUS_H
 
 
-#include "stm32mp13xx_disco_conf.h"
 #include "stm32mp13xx_disco_errno.h"
 #include "stm32mp_util_conf.h"
 

@@ -43,11 +43,11 @@ void SystemClock_Config(void)
    /* Enable all available oscillators*/
    RCC_OscInitStructure.OscillatorType = (RCC_OSCILLATORTYPE_HSI
          | RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_CSI |
-         RCC_OSCILLATORTYPE_LSI | RCC_OSCILLATORTYPE_LSE);
+         RCC_OSCILLATORTYPE_LSI );
 
    RCC_OscInitStructure.HSIState = RCC_HSI_ON;
    RCC_OscInitStructure.HSEState = RCC_HSE_ON;
-   RCC_OscInitStructure.LSEState = RCC_LSE_ON;
+   RCC_OscInitStructure.LSEState = RCC_LSE_OFF;
    RCC_OscInitStructure.LSIState = RCC_LSI_ON;
    RCC_OscInitStructure.CSIState = RCC_CSI_ON;
 
@@ -81,8 +81,6 @@ void SystemClock_Config(void)
 
    /* Enable access to RTC and backup registers */
    SET_BIT(PWR->CR1, PWR_CR1_DBP);
-   /* Configure LSEDRIVE value */
-   __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_MEDIUMHIGH);
 
    if (HAL_RCC_OscConfig(&RCC_OscInitStructure) != HAL_OK) {
       /* HAL RCC configuration error */
@@ -159,13 +157,9 @@ ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
 }
 #endif
 
-#ifdef __GNUC__
 /* With GCC/RAISONANCE, small log_info (option LD Linker->Libraries->Small log_info
    set to 'Yes') calls __io_putchar() */
 #define PUTCHAR_PROTOTYPE int __attribute__(( weak )) __io_putchar(int ch)
-#else
-#define PUTCHAR_PROTOTYPE int __attribute__(( weak )) fputc(int ch, FILE *f)
-#endif /* __GNUC__ */
 
 #if defined (__LOG_UART_IO_) || defined (__LOG_TRACE_IO_)
 PUTCHAR_PROTOTYPE
