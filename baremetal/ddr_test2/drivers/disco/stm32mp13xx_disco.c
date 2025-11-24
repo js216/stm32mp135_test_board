@@ -27,9 +27,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_disco.h"
 
-#if defined MCP_IOEXPANDER
-#include "stm32mp13xx_disco_io.h"
-#endif
 
 #include "stdio.h"
 
@@ -74,18 +71,10 @@ typedef void (* BSP_EXTI_LineCallback)(void);
 
 static GPIO_TypeDef* LED_PORT[LEDn] = {LED3_GPIO_PORT,
                                        LED4_GPIO_PORT,
-#if defined (MCP_IOEXPANDER) /* need MCP IOEXPANDER usage for LED6 and LED7*/
-									   LED6_GPIO_PORT,
-                                       LED7_GPIO_PORT
-#endif
                                       };
 
 static const uint16_t LED_PIN[LEDn] = {LED3_PIN,
                                        LED4_PIN,
-#if defined (MCP_IOEXPANDER) /* need MCP IOEXPANDER usage for LED6 and LED7*/
-                                       LED6_PIN,
-                                       LED7_PIN
-#endif
                                       };
 
 
@@ -197,9 +186,6 @@ int32_t BSP_LED_Init(Led_TypeDef Led)
 {
   int32_t  status = BSP_ERROR_NONE;
   GPIO_InitTypeDef  gpio_init_structure;
-#if defined (MCP_IOEXPANDER)
-  BSP_IO_Init_t io_init_structure;
-#endif
   /* Enable the GPIO_LED clock */
   if(Led == LED3)
   {
@@ -209,16 +195,6 @@ int32_t BSP_LED_Init(Led_TypeDef Led)
   {
     LED4_GPIO_CLK_ENABLE();
   }
-#if defined (MCP_IOEXPANDER) /* need MCP IOEXPANDER usage for LED6 and LED7*/
-  else if (Led == LED6)
-  {
-    LED6_GPIO_CLK_ENABLE();
-  }
-  else if (Led == LED7)
-  {
-    LED7_GPIO_CLK_ENABLE();
-  }
-#endif
 
   /* Configure the GPIO_LED pin */
   if ((Led == LED3) || (Led == LED4))
@@ -231,22 +207,6 @@ int32_t BSP_LED_Init(Led_TypeDef Led)
     HAL_GPIO_Init(LED_PORT[Led], &gpio_init_structure);
     BSP_EXIT_CRITICAL_SECTION(LED_PORT[Led]);
   }
-#if defined (MCP_IOEXPANDER)
-  else
-  {
-    if (Led == LED6)
-    {
-      io_init_structure.Pin  = MCP23x17_GPIO_PIN_15;
-    }
-    else
-    {
-      io_init_structure.Pin  = MCP23x17_GPIO_PIN_14;
-    }
-    io_init_structure.Pull = IO_NOPULL;
-    io_init_structure.Mode = IO_MODE_OUTPUT_PP;
-    status += BSP_IO_Init(0, &io_init_structure);
-  }
-#endif
 
   /* By default, turn off LED */
   BSP_LED_Off(Led);
@@ -296,16 +256,6 @@ int32_t BSP_LED_On(Led_TypeDef Led)
   {
     HAL_GPIO_WritePin(LED_PORT[Led], LED_PIN[Led], GPIO_PIN_RESET);
   }
-#if defined (MCP_IOEXPANDER) /* need MCP IOEXPANDER usage for LED6 and LED7*/
-  else if(Led == LED6)
-  {
-    status += BSP_IO_WritePin(0, MCP23x17_GPIO_PIN_15, IO_PIN_SET);
-  }
-  else if(Led == LED7)
-  {
-    status += BSP_IO_WritePin(0, MCP23x17_GPIO_PIN_14, IO_PIN_SET);
-  }
-#endif
   return status;
 }
 
@@ -325,16 +275,6 @@ int32_t BSP_LED_Off(Led_TypeDef Led)
   {
     HAL_GPIO_WritePin(LED_PORT[Led], LED_PIN[Led], GPIO_PIN_SET);
   }
-#if defined (MCP_IOEXPANDER) /* need MCP IOEXPANDER usage for LED6 and LED7*/
-  else if(Led == LED6)
-  {
-    status += BSP_IO_WritePin(0, MCP23x17_GPIO_PIN_15, IO_PIN_RESET);
-  }
-  else if(Led == LED7)
-  {
-    status += BSP_IO_WritePin(0, MCP23x17_GPIO_PIN_14, IO_PIN_RESET);
-  }
-#endif
   return status;
 }
 
@@ -355,16 +295,6 @@ int32_t BSP_LED_Toggle(Led_TypeDef Led)
   {
     HAL_GPIO_TogglePin(LED_PORT[Led], LED_PIN[Led]);
   }
-#if defined (MCP_IOEXPANDER) /* need MCP IOEXPANDER usage for LED6 and LED7*/
-  else if(Led == LED6)
-  {
-    status += BSP_IO_TogglePin(0, MCP23x17_GPIO_PIN_15);
-  }
-  else if(Led == LED7)
-  {
-    status += BSP_IO_TogglePin(0, MCP23x17_GPIO_PIN_14);
-  }
-#endif
   return status;
 }
 

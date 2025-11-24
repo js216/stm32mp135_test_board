@@ -34,7 +34,6 @@
 #define USE_STPMIC1x                        UTIL_USE_PMIC
 
 /* Usage of COM feature */
-#define USE_BSP_COM_FEATURE                 0U
 /* Activation of COM port for log output */
 #define USE_COM_LOG                         0U
 

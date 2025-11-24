@@ -10,49 +10,49 @@
 #define STPMU1_I2C_ADDRESS               ((0x33U & 0x7FU) << 1 )
 
 /* I2C clock speed configuration (in Hz)
-   WARNING:
-   Make sure that this define is not already declared in other files (ie.
-   stm32mp13xx_disco.h file). It can be used in parallel by other modules. */
+WARNING:
+Make sure that this define is not already declared in other files (ie.
+stm32mp13xx_disco.h file). It can be used in parallel by other modules. */
 #ifndef I2C_SPEED
- #define I2C_SPEED                        ((uint32_t)100000U)
+#define I2C_SPEED                        ((uint32_t)100000U)
 #endif /* I2C_SPEED */
 
-    #define BUS_I2C_INSTANCE                    I2C4
-    #define BUS_I2C_CLK_ENABLE()                __HAL_RCC_I2C4_CLK_ENABLE()
-    #define BUS_I2C_CLK_DISABLE()               __HAL_RCC_I2C4_CLK_DISABLE()
-    #define BUS_I2C_FORCE_RESET()               __HAL_RCC_I2C4_FORCE_RESET()
-    #define BUS_I2C_RELEASE_RESET()             __HAL_RCC_I2C4_RELEASE_RESET()
-    #define BUS_I2C_EV_IRQn                     I2C4_EV_IRQn
-    #define BUS_I2C_ER_IRQn                     I2C4_ER_IRQn
+#define BUS_I2C_INSTANCE                    I2C4
+#define BUS_I2C_CLK_ENABLE()                __HAL_RCC_I2C4_CLK_ENABLE()
+#define BUS_I2C_CLK_DISABLE()               __HAL_RCC_I2C4_CLK_DISABLE()
+#define BUS_I2C_FORCE_RESET()               __HAL_RCC_I2C4_FORCE_RESET()
+#define BUS_I2C_RELEASE_RESET()             __HAL_RCC_I2C4_RELEASE_RESET()
+#define BUS_I2C_EV_IRQn                     I2C4_EV_IRQn
+#define BUS_I2C_ER_IRQn                     I2C4_ER_IRQn
 
-  #define BUS_I2C_SCL_PIN                       UTIL_PMIC_I2C_SCL_PIN
+#define BUS_I2C_SCL_PIN                       UTIL_PMIC_I2C_SCL_PIN
 
-    #define BUS_I2C_SCL_GPIO_PORT               GPIOE
-    #define BUS_I2C_SCL_GPIO_CLK_ENABLE()       __HAL_RCC_GPIOE_CLK_ENABLE()
-    #define BUS_I2C_SCL_GPIO_CLK_DISABLE()      __HAL_RCC_GPIOE_CLK_DISABLE()
+#define BUS_I2C_SCL_GPIO_PORT               GPIOE
+#define BUS_I2C_SCL_GPIO_CLK_ENABLE()       __HAL_RCC_GPIOE_CLK_ENABLE()
+#define BUS_I2C_SCL_GPIO_CLK_DISABLE()      __HAL_RCC_GPIOE_CLK_DISABLE()
 
-  #define BUS_I2C_SCL_AF                        UTIL_PMIC_I2C_SCL_AF
+#define BUS_I2C_SCL_AF                        UTIL_PMIC_I2C_SCL_AF
 
-  #define BUS_I2C_SDA_PIN                       UTIL_PMIC_I2C_SDA_PIN
+#define BUS_I2C_SDA_PIN                       UTIL_PMIC_I2C_SDA_PIN
 
-    #define BUS_I2C_SDA_GPIO_PORT               GPIOB
-   #define BUS_I2C_SDA_GPIO_CLK_ENABLE()       __HAL_RCC_GPIOB_CLK_ENABLE()
-    #define BUS_I2C_SDA_GPIO_CLK_DISABLE()      __HAL_RCC_GPIOB_CLK_DISABLE()
+#define BUS_I2C_SDA_GPIO_PORT               GPIOB
+#define BUS_I2C_SDA_GPIO_CLK_ENABLE()       __HAL_RCC_GPIOB_CLK_ENABLE()
+#define BUS_I2C_SDA_GPIO_CLK_DISABLE()      __HAL_RCC_GPIOB_CLK_DISABLE()
 
-  #define BUS_I2C_SDA_AF                      UTIL_PMIC_I2C_SDA_AF
+#define BUS_I2C_SDA_AF                      UTIL_PMIC_I2C_SDA_AF
 
-   #define BUS_I2C_FREQUENCY  100000U /* Frequency of I2Cn = 100 KHz*/
+#define BUS_I2C_FREQUENCY  100000U /* Frequency of I2Cn = 100 KHz*/
 
 #define BUS_I2Cx_TIMING                      ((uint32_t)0x10805E89U)
 
 /** @defgroup STM32MP13XX_DISCO_BUS_Exported_Types BUS Exported Types
-  * @{
-  */
+ * @{
+ */
 #if (USE_HAL_I2C_REGISTER_CALLBACKS == 1)
 typedef struct
 {
-  pI2C_CallbackTypeDef  pMspI2cInitCb;
-  pI2C_CallbackTypeDef  pMspI2cDeInitCb;
+   pI2C_CallbackTypeDef  pMspI2cInitCb;
+   pI2C_CallbackTypeDef  pMspI2cDeInitCb;
 }BSP_I2C_Cb_t;
 #endif /* (USE_HAL_I2C_REGISTER_CALLBACKS == 1) */
 
