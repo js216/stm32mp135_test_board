@@ -22,6 +22,61 @@
 #include "stm32mp13xx_disco_stpmic1.h"
 #include <string.h>
 
+static GPIO_TypeDef* LED_PORT[LEDn] = {LED3_GPIO_PORT,
+                                       LED4_GPIO_PORT,
+                                      };
+
+static const uint16_t LED_PIN[LEDn] = {LED3_PIN,
+                                       LED4_PIN,
+                                      };
+
+int32_t BSP_LED_Init(Led_TypeDef Led)
+{
+  int32_t  status = BSP_ERROR_NONE;
+  GPIO_InitTypeDef  gpio_init_structure;
+  /* Enable the GPIO_LED clock */
+  if(Led == LED3)
+  {
+    LED3_GPIO_CLK_ENABLE();
+  }
+  else if (Led == LED4)
+  {
+    LED4_GPIO_CLK_ENABLE();
+  }
+
+  /* Configure the GPIO_LED pin */
+  if ((Led == LED3) || (Led == LED4))
+  {
+    gpio_init_structure.Pin = LED_PIN[Led];
+    gpio_init_structure.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio_init_structure.Pull = GPIO_PULLUP;
+    gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    BSP_ENTER_CRITICAL_SECTION(LED_PORT[Led]);
+    HAL_GPIO_Init(LED_PORT[Led], &gpio_init_structure);
+    BSP_EXIT_CRITICAL_SECTION(LED_PORT[Led]);
+  }
+
+  /* By default, turn off LED */
+  BSP_LED_Off(Led);
+
+return status;
+}
+
+void BSP_Error_Handler(void)
+{
+  BSP_LED_Init(LED_RED);
+
+  /* Infinite loop */
+  while(1)
+  {
+    /* Toggle LED_RED */
+    BSP_LED_Toggle(LED_RED);
+    HAL_Delay(500);
+  }
+}
+
+
+
 /** @addtogroup BSP
   * @{
   */

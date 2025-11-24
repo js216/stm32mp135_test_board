@@ -215,8 +215,6 @@ typedef struct
 /** @defgroup STM32MP13XX_DISCO_LOW_LEVEL_Exported_Functions Exported Functions
  * @{
  */
-uint32_t         BSP_GetVersion(void);
-void             BSP_Error_Handler(void);
 
 /** @addtogroup STM32MP13XX_DISCO_LOW_LEVEL_Exported_Functions_Group1 LED Functions
  * @{
@@ -234,9 +232,6 @@ int32_t         BSP_LED_GetState (Led_TypeDef Led);
 /** @addtogroup STM32MP13XX_DISCO_LOW_LEVEL_Exported_Functions_Group2 BUTTON Functions
  * @{
  */
-int32_t         BSP_PB_Init(Button_TypeDef Button, ButtonMode_TypeDef ButtonMode);
-int32_t         BSP_PB_DeInit(Button_TypeDef Button);
-int32_t         BSP_PB_GetState(Button_TypeDef Button);
 void            BSP_PB_Callback(Button_TypeDef Button);
 void            BSP_PB_IRQHandler(Button_TypeDef Button);
 void            BSP_PB_WAKEUP_EXTI_LINE_0_IRQHandler(void);
