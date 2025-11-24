@@ -47,7 +47,7 @@
 
 #ifdef DDR_INTERACTIVE
 #include "stm32mp_util_conf.h"
-#include "stm32mp_util_ddr_conf.h"
+#include "stm32mp13xx-ddr3-4Gb-template.h"
 #else /* DDR_INTERACTIVE */
 #if defined DDR_TYPE_DDR3_4Gb
 #include "stm32mp13xx-ddr3-4Gb.h"

@@ -1,60 +1,20 @@
-/**
-  ******************************************************************************
-  * @file    ddr_tool_util.c
-  * @author  MCD Application Team
-  * @version V0.1.0
-  * @date    01-March-2013
-  * @brief   This file contains common functions used for STM32MP1xx DDR Tool
-  *          project.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2013-2023 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-
-/* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal.h"
-
 #include "stm32mp13xx_disco_stpmic1.h"
-
 #include "ddr_tool_util.h"
 #include "stm32mp_util_conf.h"
-#include "stm32mp_util_ddr_conf.h"
+#include "stm32mp13xx-ddr3-4Gb-template.h"
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_disco_stpmic1.h"
 #include "stm32mp13xx_power.h"
 #include "log.h"
-#include "ddr_tool.h"
+#include "ddr_tests.h"
 #include "stm32mp_util_conf.h"
 
-/* Private typedef -----------------------------------------------------------*/
-/* Private define ------------------------------------------------------------*/
 #define HAL_TIMEOUT_VALUE   HAL_MAX_DELAY
 #define USARTx                           UART4
 
-/* Private macro -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* UART handler declaration, used for logging */
 UART_HandleTypeDef huart;
 
-/* Private function prototypes -----------------------------------------------*/
-/* Exported constants --------------------------------------------------------*/
-/* Exported macro ------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* Private functions ---------------------------------------------------------*/
-
-/**
-  * @brief  This function is executed to configure in case of error occurrence.
-  * @param  None
-  * @retval None
-  */
 void UART_Config(void)
 {
   /*##-1- Configure the UART peripheral ######################################*/
@@ -111,21 +71,6 @@ void UART_Config(void)
   printf("\n\r=============== UTILITIES-DDR Tool ===============\r");
   printf("\n\rModel: %s \r", UTIL_MODEL);
   printf("\n\rRAM: %s \n\r", DDR_MEM_NAME);
-
-#if 0
-#if defined (__LOG_UART_IO_)
-  log_info("__LOG_UART_IO_ switch is activated, log is evacuated over UART \n\r");
-#endif
-
-#if defined (__LOG_TRACE_IO_)
-  log_info("\n\r __LOG_TRACE_IO_ switch is activated, log is evacuated in a circular buffer \n\r");
-#endif
-
-#if LOGLEVEL >= LOGDBG
-  log_info("Log level is not at max\n\r");
-  log_info("you can configure LOGLEVEL in preprocessor options LOGLEVEL=LOGDBG \n\r");
-#endif
-#endif
 }
 
 /**

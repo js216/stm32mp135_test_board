@@ -21,7 +21,8 @@
 
 #include "string.h"
 #include "stdlib.h"
-#include "ddr_tool.h"
+#include "ddr_tests.h"
+#include "ddr_tool_util.h"
 #include "stm32mp_util_conf.h"
 
 /* Private typedef -----------------------------------------------------------*/

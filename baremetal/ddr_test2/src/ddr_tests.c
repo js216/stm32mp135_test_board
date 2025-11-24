@@ -26,7 +26,7 @@
 #include "ddr_tests.h"
 
 #include "stm32mp_util_conf.h"
-#include "stm32mp_util_ddr_conf.h"
+#include "stm32mp13xx-ddr3-4Gb-template.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
