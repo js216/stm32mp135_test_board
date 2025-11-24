@@ -22,6 +22,7 @@
 #include "stm32mp13xx_disco_stpmic1.h"
 #include <string.h>
 
+
 static GPIO_TypeDef* LED_PORT[LEDn] = {LED3_GPIO_PORT,
                                        LED4_GPIO_PORT,
                                       };
@@ -29,6 +30,28 @@ static GPIO_TypeDef* LED_PORT[LEDn] = {LED3_GPIO_PORT,
 static const uint16_t LED_PIN[LEDn] = {LED3_PIN,
                                        LED4_PIN,
                                       };
+
+int32_t BSP_LED_Toggle(Led_TypeDef Led)
+{
+  int32_t  status = BSP_ERROR_NONE;
+  /* Toggle GPIO Led Pin */
+  if((Led == LED3) || (Led == LED4))
+  {
+    HAL_GPIO_TogglePin(LED_PORT[Led], LED_PIN[Led]);
+  }
+  return status;
+}
+
+
+int32_t BSP_LED_Off(Led_TypeDef Led)
+{
+  int32_t  status = BSP_ERROR_NONE;
+  if((Led == LED3) || (Led == LED4))
+  {
+    HAL_GPIO_WritePin(LED_PORT[Led], LED_PIN[Led], GPIO_PIN_SET);
+  }
+  return status;
+}
 
 int32_t BSP_LED_Init(Led_TypeDef Led)
 {

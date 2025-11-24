@@ -216,19 +216,6 @@ typedef struct
  * @{
  */
 
-/** @addtogroup STM32MP13XX_DISCO_LOW_LEVEL_Exported_Functions_Group1 LED Functions
- * @{
- */
-int32_t         BSP_LED_Init(Led_TypeDef Led);
-int32_t         BSP_LED_DeInit(Led_TypeDef Led);
-int32_t         BSP_LED_On(Led_TypeDef Led);
-int32_t         BSP_LED_Off(Led_TypeDef Led);
-int32_t         BSP_LED_Toggle(Led_TypeDef Led);
-int32_t         BSP_LED_GetState (Led_TypeDef Led);
-/**
- * @}
- */
-
 /** @addtogroup STM32MP13XX_DISCO_LOW_LEVEL_Exported_Functions_Group2 BUTTON Functions
  * @{
  */
