@@ -17,7 +17,7 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32_device_hal.h"
+#include "stm32mp13xx_hal.h"
 
 #include "stdio.h"
 #include "stdlib.h"
