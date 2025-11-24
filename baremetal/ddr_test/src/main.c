@@ -44,8 +44,10 @@ void setup_ddr(void)
    hddr.zdata = 0;
    hddr.clear_bkp = false;
 
-   if (HAL_DDR_Init(&hddr) != HAL_OK)
+   if (HAL_DDR_Init(&hddr) != HAL_OK) {
+      printf("HAL_DDR_Init() error!\r\n");
       blink(3);
+   }
 }
 
 
