@@ -629,22 +629,3 @@ static int32_t I2C_ReadReg(uint16_t DevAddr, uint16_t Reg, uint16_t MemAddSize, 
 
   return BSP_ERROR_BUS_FAILURE;
 }
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
