@@ -17,10 +17,30 @@
   */
 
 /* Includes ----------------------------------------------------------------------*/
-#include "stm32mp13xx_disco.h"
 #include "stm32mp13xx_disco_bus.h"
 #include "stm32mp13xx_disco_stpmic1.h"
 #include <string.h>
+
+typedef enum
+{
+   LED3 = 0U,
+   LED_BLUE = LED3,
+   LED4 = 1U,
+   LED_RED = LED4,
+   LEDn
+}Led_TypeDef;
+
+
+#define LED3_GPIO_PORT                   GPIOA
+#define LED3_GPIO_CLK_ENABLE()           __HAL_RCC_GPIOA_CLK_ENABLE()
+#define LED3_GPIO_CLK_DISABLE()          __HAL_RCC_GPIOA_CLK_DISABLE()
+#define LED3_PIN                         GPIO_PIN_14
+
+#define LED4_GPIO_PORT                   GPIOA
+#define LED4_GPIO_CLK_ENABLE()           __HAL_RCC_GPIOA_CLK_ENABLE()
+#define LED4_GPIO_CLK_DISABLE()          __HAL_RCC_GPIOA_CLK_DISABLE()
+#define LED4_PIN                         GPIO_PIN_13
+
 
 
 static GPIO_TypeDef* LED_PORT[LEDn] = {LED3_GPIO_PORT,

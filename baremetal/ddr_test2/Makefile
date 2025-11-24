@@ -25,7 +25,6 @@ SOURCES = \
 	 drivers/CMSIS/irq_ctrl_gic.c \
 	 drivers/CMSIS/startup_stm32mp135c_ca7.c \
 	 drivers/CMSIS/system_stm32mp13xx_A7.c \
-	 drivers/disco/stm32mp13xx_disco.c \
 	 drivers/disco/stm32mp13xx_disco_bus.c \
 	 drivers/disco/stm32mp13xx_disco_stpmic1.c \
 	 drivers/disco/stm32mp13xx_power.c \

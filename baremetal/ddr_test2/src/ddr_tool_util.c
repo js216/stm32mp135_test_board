@@ -22,14 +22,12 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal.h"
 
-#include "stm32mp13xx_disco.h"
 #include "stm32mp13xx_disco_stpmic1.h"
 
 #include "ddr_tool_util.h"
 #include "stm32mp_util_conf.h"
 #include "stm32mp_util_ddr_conf.h"
 #include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_disco.h"
 #include "stm32mp13xx_disco_stpmic1.h"
 #include "stm32mp13xx_power.h"
 #include "log.h"

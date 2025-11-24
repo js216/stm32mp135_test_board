@@ -22,7 +22,6 @@
 #include "stm32mp13xx_power.h"
 #include "log.h"
 #include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_disco.h"
 #include "stm32mp13xx_disco_stpmic1.h"
 #include "stm32mp13xx_power.h"
 #include "log.h"
