@@ -1,70 +1,35 @@
-/**
-  ******************************************************************************
-  * @file    Templates/Src/stm32mp13xx_hal_msp.c
-  * @author  MCD Application Team
-  * @brief   HAL MSP module.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2019 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+#include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_disco.h"
+#include "stm32mp13xx_disco_stpmic1.h"
+#include "stm32mp13xx_power.h"
+#include "log.h"
+#include "ddr_tool.h"
+#include "stm32mp_util_conf.h"
 
-/* Includes ------------------------------------------------------------------*/
-#include "main.h"
+#define USARTx_TX_PIN                    UTIL_UART_TX_PIN
+#define USARTx_TX_AF                     UTIL_UART_TX_AF
+#define USARTx_RX_PIN                    UTIL_UART_RX_PIN
+#define USARTx_RX_AF                     UTIL_UART_RX_AF
 
-/** @addtogroup STM32MP13xx_HAL_Examples
-  * @{
-  */
+#define USARTx_CLK_ENABLE()              __HAL_RCC_UART4_CLK_ENABLE()
+#define USARTx_FORCE_RESET()             __HAL_RCC_UART4_FORCE_RESET()
+#define USARTx_RELEASE_RESET()           __HAL_RCC_UART4_RELEASE_RESET()
 
-/** @addtogroup Templates
-  * @{
-  */
+#define USARTx_TX_GPIO_PORT              GPIOD
+#define USARTx_TX_GPIO_CLK_ENABLE()      __HAL_RCC_GPIOD_CLK_ENABLE()
 
-/* Private typedef -----------------------------------------------------------*/
-/* Private define ------------------------------------------------------------*/
-/* Private macro -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
-/* Private functions ---------------------------------------------------------*/
+#define USARTx_RX_GPIO_PORT              GPIOD
+#define USARTx_RX_GPIO_CLK_ENABLE()      __HAL_RCC_GPIOD_CLK_ENABLE()
 
-/** @defgroup HAL_MSP_Private_Functions
-  * @{
-  */
-
-/**
-  * @brief  Initializes the Global MSP.
-  * @param  None
-  * @retval None
-  */
 void HAL_MspInit(void)
 {
   BSEC_Check_Crypto();
 }
 
-/**
-  * @brief  DeInitializes the Global MSP.
-  * @param  None
-  * @retval None
-  */
 void HAL_MspDeInit(void)
 {
 }
 
-/**
-  * @brief UART MSP Initialization
-  *        This function configures the hardware resources used in this example:
-  *           - Peripheral's clock enable
-  *           - Peripheral's GPIO Configuration
-  * @param huart: UART handle pointer
-  * @retval None
-  */
 void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 {
   GPIO_InitTypeDef  GPIO_InitStruct;
@@ -198,33 +163,3 @@ int HAL_DDR_MspInit(ddr_type type)
 
   return 0;
 }
-
-/**
-  * @brief  Initializes the PPP MSP.
-  * @param  None
-  * @retval None
-  */
-/*void HAL_PPP_MspInit(void)
-{*/
-/*}*/
-
-/**
-  * @brief  DeInitializes the PPP MSP.
-  * @param  None
-  * @retval None
-  */
-/*void HAL_PPP_MspDeInit(void)
-{*/
-/*}*/
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */

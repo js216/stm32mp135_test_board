@@ -21,7 +21,14 @@
 #include "stm32mp13xx_disco_stpmic1.h"
 #include "stm32mp13xx_power.h"
 #include "log.h"
-#include "main.h"
+#include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_disco.h"
+#include "stm32mp13xx_disco_stpmic1.h"
+#include "stm32mp13xx_power.h"
+#include "log.h"
+#include "ddr_tool.h"
+#include "stm32mp_util_conf.h"
+
 
 /** @addtogroup STM32MP13xx_HAL_Examples
   * @{

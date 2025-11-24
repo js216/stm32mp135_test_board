@@ -1,4 +1,8 @@
-#include "main.h"
+#include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_disco.h"
+#include "stm32mp13xx_power.h"
+#include "log.h"
+#include "ddr_tool.h"
 #include "stm32mp_util_conf.h"
 
 static void SystemClock_Config(void);
