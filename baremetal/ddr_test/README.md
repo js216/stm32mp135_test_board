@@ -6,16 +6,21 @@ them back to verify if they were correctly written.
 
 ### Getting started
 
-1. To compile the program, run Make from this directory:
+To compile the program, run Make from this directory:
 
-       $ cd ddr_test
-       $ make
+    $ cd ddr_test
+    $ make
 
-2. To download the program to the board, run
+To download the program to the board via UART, set BOOT pins to `000` and run
 
-       $ make install
+    $ make install PORT=COM20.
 
-3. Monitor the UART for messages about the status of the memory test.
+To use JTAG instead, set boot pins to `100` and use the provided GDB script to
+run the code:
+
+   # arm-none-eabi-gdb -q -x load.gdb
+
+Monitor the UART for messages about the status of the memory test.
 
 ### Author
 

@@ -1,140 +1,12 @@
-#include <stdio.h>
+#include "setup.h"
 
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_disco.h"
+#include "stm32mp13xx_disco_stpmic1.h"
 
-void SystemClock_Config(void);
-void PeriphCommonClock_Config(void);
-static void MX_UART4_Init(void);
-
-UART_HandleTypeDef huart4;
+// global variables
 DDR_InitTypeDef hddr;
-
-void blink(int n)
-{
-   for (int i=0; i<n; i++) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_13, GPIO_PIN_RESET);
-      HAL_Delay(100);
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_13, GPIO_PIN_SET);
-      HAL_Delay(250);
-   }
-}
-
-void setup_ddr(void)
-{
-   // MCE and TZC config
-   __HAL_RCC_MCE_CLK_ENABLE();
-   __HAL_RCC_TZC_CLK_ENABLE();
-
-   // configure TZC to allow DDR Region0 R/W non secure for all IDs
-   TZC->GATE_KEEPER     = 0;
-   TZC->REG_ID_ACCESSO  = 0xFFFFFFFF;  // Allow DDR Region0 R/W non secure for all IDs
-   TZC->REG_ATTRIBUTESO = 0xC0000001;
-   TZC->GATE_KEEPER     |= 1;          // Enable the access in secure Mode  // filter 0 request close
-
-   // Enable ETZPC & BACKUP SRAM for security
-   __HAL_RCC_ETZPC_CLK_ENABLE();
-   __HAL_RCC_BKPSRAM_CLK_ENABLE();
-
-   // Unlock debugger
-   BSEC->BSEC_DENABLE = 0x47f;
-
-   // Init DDR
-   hddr.wakeup_from_standby = false;
-   hddr.self_refresh = false;
-   hddr.zdata = 0;
-   hddr.clear_bkp = false;
-
-   if (HAL_DDR_Init(&hddr) != HAL_OK) {
-      printf("HAL_DDR_Init() error!\r\n");
-   }
-}
-
-
-/**
- * Generate PRBS-31 sequence.
- *
- * Shift, XOR two bits in the register (bits 27 and 30), and discard MSB.
- *
- * @param sr The previous state of the PRBS.
- * @return The next state of the PRBS.
- */
-uint32_t prbs31(uint32_t sr)
-{
-   const int bit30 = (sr & (1<<30)) >> 30;
-   const int bit27 = (sr & (1<<27)) >> 27;
-
-   sr <<= 1;
-   sr |= !(bit30 ^ bit27);
-
-   sr <<= 1;
-   sr >>= 1;
-
-   return sr;
-}
-
-
-void test_ddr(void)
-{
-   const uint32_t i0 = 0;
-   const int max_mb = 512;
-   const uint32_t num_cycles = max_mb * 1024 * 1024;
-
-   static uint32_t sr_init = 0;
-   uint32_t sr = sr_init;
-   uint32_t *p = (uint32_t*)DRAM_MEM_BASE;
-
-   // write pattern to DDR
-   printf("\nWriting to DDR (sr=0x%x) ...\r\n", sr);
-   for (uint32_t i=i0; i<num_cycles; i+=sizeof(uint32_t)) {
-      *p = sr;
-      if (*p != sr) {
-         printf("Writing error at i=0x%08x, *p=0x%08x, sr=0x%08x\r\n", i, *p, sr);
-      }
-      if (i % (1024*1024) == 0)
-         printf("%03d/%d addr=0x%08p wrote=0x%08x\r\n", i/(1024*1024), max_mb, p, *p);
-      sr = prbs31(sr);
-      p++;
-   }
-
-   // verify DDR write/read
-   sr = sr_init;
-   p = (uint32_t*)DRAM_MEM_BASE;
-   printf("\nReading from DDR (sr=0x%x) ...\r\n", sr);
-   for (uint32_t i=i0; i<num_cycles; i+=4) {
-      if (*p != sr) {
-         printf("Verification error at i=0x%08x, *p=0x%08x, sr=0x%08x\r\n", i, *p, sr);
-      }
-      if (i % (1024*1024) == 0)
-         printf("%03d/%d addr=0x%08p read=0x%08x\r\n", i/(1024*1024), max_mb, p, *p);
-      sr = prbs31(sr);
-      p++;
-   }
-
-   sr_init = sr;
-}
-
-
-int main(void)
-{
-   HAL_Init();
-   SystemClock_Config();
-   PeriphCommonClock_Config();
-   MX_UART4_Init();
-
-   setup_ddr();
-
-   blink(3);
-
-   for (int i=1; i<=5; i++) {
-      printf("Will start to verify %d ...\r\n", i);
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_14);
-      HAL_Delay(1000);
-   }
-
-   while (1)
-      test_ddr();
-}
-
+UART_HandleTypeDef huart4;
 
 void SystemClock_Config(void)
 {
@@ -143,14 +15,14 @@ void SystemClock_Config(void)
    RCC_ClkInitTypeDef RCC_ClkInitStructure;
    RCC_OscInitTypeDef RCC_OscInitStructure;
 
-   /* Enable all available oscillators except LSE */
+   /* Enable all available oscillators*/
    RCC_OscInitStructure.OscillatorType = (RCC_OSCILLATORTYPE_HSI |
          RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_CSI |
-         RCC_OSCILLATORTYPE_LSI );
+         RCC_OSCILLATORTYPE_LSI | RCC_OSCILLATORTYPE_LSE);
 
    RCC_OscInitStructure.HSIState = RCC_HSI_ON;
    RCC_OscInitStructure.HSEState = RCC_HSE_ON;
-   RCC_OscInitStructure.LSEState = RCC_LSE_OFF;
+   RCC_OscInitStructure.LSEState = RCC_LSE_ON;
    RCC_OscInitStructure.LSIState = RCC_LSI_ON;
    RCC_OscInitStructure.CSIState = RCC_CSI_ON;
 
@@ -201,13 +73,14 @@ void SystemClock_Config(void)
    RCC_OscInitStructure.PLL4.PLLFRACV = 0;
    RCC_OscInitStructure.PLL4.PLLMODE = RCC_PLL_INTEGER;
 
-//   /* Enable access to RTC and backup registers */
-//   SET_BIT(PWR->CR1, PWR_CR1_DBP);
-//   /* Configure LSEDRIVE value */
-//   __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_MEDIUMHIGH);
+   /* Enable access to RTC and backup registers */
+   SET_BIT(PWR->CR1, PWR_CR1_DBP);
+   /* Configure LSEDRIVE value */
+   __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_MEDIUMHIGH);
 
    if (HAL_RCC_OscConfig(&RCC_OscInitStructure) != HAL_OK) {
       /* HAL RCC configuration error */
+      Error_Handler();
    }
 
    /* Select PLLx as MPU, AXI and MCU clock sources */
@@ -232,6 +105,7 @@ void SystemClock_Config(void)
 
    if (HAL_RCC_ClockConfig(&RCC_ClkInitStructure) != HAL_OK) {
       /* HAL RCC configuration error */
+      Error_Handler();
    }
 
    /*
@@ -262,89 +136,149 @@ void PeriphCommonClock_Config(void)
 
    /** Initializes the common periph clock
    */
-//   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC;
-//   PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
-//   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
-//   {
-//   }
-
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+   PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      Error_Handler();
+   }
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_CKPER;
    PeriphClkInit.CkperClockSelection = RCC_CKPERCLKSOURCE_HSE;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ETH1;
    PeriphClkInit.Eth1ClockSelection = RCC_ETH1CLKSOURCE_PLL4;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ETH2;
    PeriphClkInit.Eth2ClockSelection = RCC_ETH2CLKSOURCE_PLL4;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_SDMMC1;
    PeriphClkInit.Sdmmc1ClockSelection = RCC_SDMMC1CLKSOURCE_PLL4;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_SDMMC2;
    PeriphClkInit.Sdmmc2ClockSelection = RCC_SDMMC2CLKSOURCE_PLL4;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_STGEN;
    PeriphClkInit.StgenClockSelection = RCC_STGENCLKSOURCE_HSE;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C4;
    PeriphClkInit.I2c4ClockSelection = RCC_I2C4CLKSOURCE_HSI;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC2;
    PeriphClkInit.Adc2ClockSelection = RCC_ADC2CLKSOURCE_PER;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C12;
    PeriphClkInit.I2c12ClockSelection = RCC_I2C12CLKSOURCE_HSI;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2;
    PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_HSI;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_UART4;
    PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_HSI;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_SAES;
    PeriphClkInit.SaesClockSelection = RCC_SAESCLKSOURCE_ACLK;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
 
    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_LPTIM3;
    PeriphClkInit.Lptim3ClockSelection = RCC_LPTIM3CLKSOURCE_PCLK3;
    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
    {
+      Error_Handler();
    }
+}
+
+
+void setup_ddr(void)
+{
+   // MCE and TZC config
+   __HAL_RCC_MCE_CLK_ENABLE();
+   __HAL_RCC_TZC_CLK_ENABLE();
+
+   // configure TZC to allow DDR Region0 R/W non secure for all IDs
+   TZC->GATE_KEEPER     = 0;
+   TZC->REG_ID_ACCESSO  = 0xFFFFFFFF;  // Allow DDR Region0 R/W non secure for all IDs
+   TZC->REG_ATTRIBUTESO = 0xC0000001;
+   TZC->GATE_KEEPER     |= 1;          // Enable the access in secure Mode  // filter 0 request close
+
+   // enable ETZPC & BACKUP SRAM for security
+   __HAL_RCC_ETZPC_CLK_ENABLE();
+   __HAL_RCC_BKPSRAM_CLK_ENABLE();
+
+   // unlock debugger
+   BSEC->BSEC_DENABLE = 0x47f;
+
+   // enable clock debug CK_DBG
+   RCC->DBGCFGR |= RCC_DBGCFGR_DBGCKEN;
+
+   // init DDR
+   hddr.wakeup_from_standby = false;
+   hddr.self_refresh = false;
+   hddr.zdata = 0;
+   hddr.clear_bkp = false;
+
+   if (HAL_DDR_Init(&hddr) != HAL_OK)
+      Error_Handler();
+}
+
+
+int HAL_DDR_MspInit(ddr_type type)
+{
+   if (type == STM32MP_DDR3)
+   {
+      STPMU1_Regulator_Voltage_Set(STPMU1_BUCK2, 1350);
+      STPMU1_Regulator_Enable(STPMU1_BUCK2);
+      HAL_Delay(1);
+      STPMU1_Regulator_Enable(STPMU1_VREFDDR);
+      HAL_Delay(1);
+   }
+   return 0;
 }
 
 
@@ -380,12 +314,6 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 }
 
 
-int HAL_DDR_MspInit(ddr_type type)
-{
-   return 0;
-}
-
-
 void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
 {
    if (huart->Instance==UART4) {
@@ -403,7 +331,86 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
 }
 
 
-static void MX_UART4_Init(void)
+void HAL_SD_MspInit(SD_HandleTypeDef *hsd)
+{
+   GPIO_InitTypeDef GPIO_Init_Structure;
+
+   /* Enable SDMMC Clock */
+   __HAL_RCC_SDMMC1_CLK_ENABLE();
+   /* Force the SDMMC Periheral Clock Reset */
+   __HAL_RCC_SDMMC1_FORCE_RESET();
+   /* Release the SDMMC Periheral Clock Reset */
+   __HAL_RCC_SDMMC1_RELEASE_RESET();
+
+   /* Enable GPIOs clock */
+   __HAL_RCC_GPIOA_CLK_ENABLE();
+   __HAL_RCC_GPIOB_CLK_ENABLE();
+   __HAL_RCC_GPIOC_CLK_ENABLE();
+   __HAL_RCC_GPIOD_CLK_ENABLE();
+   __HAL_RCC_GPIOE_CLK_ENABLE();
+   __HAL_RCC_GPIOF_CLK_ENABLE();
+   __HAL_RCC_GPIOG_CLK_ENABLE();
+   __HAL_RCC_GPIOH_CLK_ENABLE();
+
+   /* Common GPIO configuration */
+   GPIO_Init_Structure.Mode      = GPIO_MODE_AF_PP;
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Speed     = GPIO_SPEED_FREQ_HIGH;
+
+   /* Common GPIO configuration */
+   GPIO_Init_Structure.Mode      = GPIO_MODE_AF_PP;
+   GPIO_Init_Structure.Speed     = GPIO_SPEED_FREQ_HIGH;
+
+   /* D0 D1 D2 D3 CK on PC8 PC9 PC10 PC11 PC12 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12;
+   HAL_GPIO_Init(GPIOC, &GPIO_Init_Structure);
+
+   /* CMD on PD2 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_2;
+   HAL_GPIO_Init(GPIOD, &GPIO_Init_Structure);
+
+   /* CKIN on PB15 - AF8 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF8_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_15;
+   HAL_GPIO_Init(GPIOB, &GPIO_Init_Structure);
+
+   /* D4 on PB14 - AF11 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF11_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_14;
+   HAL_GPIO_Init(GPIOB, &GPIO_Init_Structure);
+
+   /* D5 on PB12 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_12;
+   HAL_GPIO_Init(GPIOB, &GPIO_Init_Structure);
+
+   /* D6 on PC6 - AF8 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF8_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_6;
+   HAL_GPIO_Init(GPIOC, &GPIO_Init_Structure);
+
+   /* D7 on PC7 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF10_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_7;
+   HAL_GPIO_Init(GPIOC, &GPIO_Init_Structure);
+
+
+   /* Enable configuration for SDMMC interrupts */
+   IRQ_SetPriority(SDMMC1_IRQn, 0x00);
+   IRQ_Enable(SDMMC1_IRQn);
+}
+
+
+void MX_UART4_Init(void)
 {
    huart4.Instance = UART4;
    huart4.Init.BaudRate = 115200;
@@ -419,15 +426,19 @@ static void MX_UART4_Init(void)
 
    if (HAL_UART_Init(&huart4) != HAL_OK)
    {
+      Error_Handler();
    }
    if (HAL_UARTEx_SetTxFifoThreshold(&huart4, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
    {
+      Error_Handler();
    }
    if (HAL_UARTEx_SetRxFifoThreshold(&huart4, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
    {
+      Error_Handler();
    }
    if (HAL_UARTEx_DisableFifoMode(&huart4) != HAL_OK)
    {
+      Error_Handler();
    }
 }
 
@@ -449,5 +460,13 @@ int __io_getchar (void)
 }
 
 
-// end file main.c
+void Error_Handler(void)
+{
+   while (1) {
+      BSP_LED_Toggle(LED_RED);
+      HAL_Delay(1000);
+   }
+}
+
+// end file setup.c
 

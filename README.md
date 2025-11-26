@@ -32,10 +32,10 @@ with debugging this board:
 - `ddr_test`: Initialize DDR3L memory, fill it with pseudorandom bits, and
   confirm that reading from the memory returns the same bit sequence.
 
-### Notes
+- `ddr_test2`: A simplified version of the STM32DDRFW-UTIL tool.
 
-- No STPMIC1, direct external connections for power supplies
-- LSE (external 32.768 kHz) is not connected
+- `sd_test`: Initialize SD card, fill it with pseudorandom bits, and
+  confirm that reading from the card returns the same bit sequence.
 
 ### Author
 
