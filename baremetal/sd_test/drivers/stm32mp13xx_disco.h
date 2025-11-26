@@ -21,6 +21,8 @@
 #ifndef __STM32MP13XX_DISCO_H
 #define __STM32MP13XX_DISCO_H
 
+#include "stm32mp13xx_hal.h"
+
 #ifdef __cplusplus
  extern "C" {
 #endif
@@ -28,7 +30,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal.h"
 
-#include "stm32mp13xx_disco_conf.h"
 #include "stm32mp13xx_disco_errno.h"
 
 /** @addtogroup BSP

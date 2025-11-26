@@ -33,6 +33,14 @@
 
 #include "stdio.h"
 
+#define BSP_BUTTON_WAKEUP_IT_PRIORITY       0x0FUL
+#define BSP_BUTTON_USER_IT_PRIORITY         0x0FUL
+#define BSP_BUTTON_USER2_IT_PRIORITY        0x0FUL
+#define BSP_BUTTON_TAMPER_IT_PRIORITY       0x0FUL
+
+#define BSP_ENTER_CRITICAL_SECTION(periph)  ((void)0)
+#define BSP_EXIT_CRITICAL_SECTION(periph)   ((void)0)
+
 /** @addtogroup BSP
   * @{
   */

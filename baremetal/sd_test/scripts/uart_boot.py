@@ -22,7 +22,12 @@ def interp_byte(b):
 
 
 def get_ack(dev, note="", do_print=False):
-    r = dev.read_bytes(1)[0]
+    try:
+        r = dev.read_bytes(1)[0]
+    except pyvisa.errors.VisaIOError:
+        # try again
+        r = dev.read_bytes(1)[0]
+
     if do_print:
         print(f"{format(r, '#04x')}\t\t{interp_byte(r)}{note}")
     if interp_byte(r) != "ACK":

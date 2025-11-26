@@ -1,5 +1,5 @@
-#include <stdio.h> // printf()
-#include <ctype.h> // isprint()
+#include <stdio.h>
+#include <ctype.h>
 
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_etzpc.h"
@@ -8,10 +8,7 @@
 
 #include "setup.h"
 
-#define READ_TIMEOUT       3000
-
 // global variables
-__IO uint8_t RxCplt;
 SD_HandleTypeDef SDHandle;
 
 void clear_ddr(const int num_words)
@@ -88,7 +85,8 @@ void setup_sd(void)
 
 void read_sd_blocking(const int app_offset, const int num_blocks)
 {
-   if (HAL_SD_ReadBlocks(&SDHandle, (uint8_t*)DRAM_MEM_BASE, app_offset, num_blocks, READ_TIMEOUT) != HAL_OK) {
+   const int read_timeout = 3000;
+   if (HAL_SD_ReadBlocks(&SDHandle, (uint8_t*)DRAM_MEM_BASE, app_offset, num_blocks, read_timeout) != HAL_OK) {
       printf("Error in HAL_SD_ReadBlocks()\r\n");
       Error_Handler();
    }
@@ -96,27 +94,29 @@ void read_sd_blocking(const int app_offset, const int num_blocks)
 
 void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
 {
+static __IO uint8_t RxCplt;
+
    while (HAL_SD_GetCardState(&SDHandle) != HAL_SD_CARD_TRANSFER) {}
    RxCplt=1;
 }
 
-
-void read_sd_nonblocking(const int app_offset, const int num_blocks)
+void blink(void)
 {
-//
-//   /* Read application from the SD */
-//   RxCplt = 0;
-//   uint32_t exampleOffset = 0x00;
-//   if (HAL_SD_ReadBlocks_DMA(&SDHandle, (uint8_t*)DRAM_MEM_BASE, app_offset, num_blocks) != HAL_OK) {
-//      printf("Error in HAL_SD_ReadBlocks_DMA()\r\n");
-//      Error_Handler();
-//   }
-//
-//   /* Wait until Application if loaded into DDR from SD storage */
-//   while (RxCplt == 0)
-//      ;
+   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_14);
+   HAL_Delay(250);
+   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+   HAL_Delay(250);
 }
 
+void assert_failed(uint8_t* file, uint32_t line)
+{
+   printf("File %s line %d: assert failed.\r\n", file, line);
+
+   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_14);
+   HAL_Delay(50);
+   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+   HAL_Delay(50);
+}
 
 int main(void)
 {
@@ -133,8 +133,7 @@ int main(void)
 
    for (int i=1; i<=5; i++) {
       printf("Hello World %d\r\n", i);
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_14);
-      HAL_Delay(1000);
+      blink();
    }
 
    // optional: clear the DDR memory
@@ -148,12 +147,16 @@ int main(void)
    // print out the first block
    print_ddr(BLOCKSIZE / 4);
 
+   // hang here for now
+   int i = 0;
+   while (1) {
+      printf("Now waiting %d\r\n", i++);
+      blink();
+   }
+
    // jump to application we just loaded into DDR
-   printf("Jumping to app...\r\n");
-   void (*app_entry)(void);
-   app_entry = (void (*)(void))(0xc0000000);
-   app_entry();
+   //printf("Jumping to app...\r\n");
+   //void (*app_entry)(void);
+   //app_entry = (void (*)(void))(0xc0000000);
+   //app_entry();
 }
-
-// end file main.c
-

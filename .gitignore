@@ -1,6 +1,7 @@
 *.swp
 *.swo
 *.lck
+*.dat
 
 .mxproject
 .project

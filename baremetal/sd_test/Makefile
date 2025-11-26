@@ -61,18 +61,20 @@ LFLAGS = \
 	 -ffreestanding \
 	 -Wl,--print-memory-usage \
 
-.PHONY: all clean install read
+.PHONY: all clean install check-port
 
 all: $(BINARYNAME).stm32
 
 clean:
 	rm -rf build
 
-install: $(BINARYNAME).stm32
-	python3 scripts/uart_boot.py -c ASRL14::INSTR -f $<
+check-port:
+ifndef PORT
+	$(error PORT not set. Usage: make install PORT=COM1)
+endif
 
-read:
-	python3 scripts/uart_read.py -c ASRL14::INSTR
+install: $(BINARYNAME).stm32 check-port
+	python3 scripts/uart_boot.py -c $(PORT) -f $<
 
 $(OBJDIR)/%.o: %.c
 	mkdir -p $(dir $@)

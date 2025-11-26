@@ -26,8 +26,8 @@
 
 
  /* Includes ------------------------------------------------------------------*/
-#include "stm32mp13xx_disco_conf.h"
 #include "stm32mp13xx_disco_errno.h"
+#include "stm32mp13xx_hal.h"
 
 /** @addtogroup BSP
   * @{

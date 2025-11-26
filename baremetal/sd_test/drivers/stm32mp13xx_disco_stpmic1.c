@@ -22,6 +22,9 @@
 #include "stm32mp13xx_disco_stpmic1.h"
 #include <string.h>
 
+#define BSP_ENTER_CRITICAL_SECTION(periph)  ((void)0)
+#define BSP_EXIT_CRITICAL_SECTION(periph)   ((void)0)
+
 /** @addtogroup BSP
   * @{
   */
@@ -35,6 +38,7 @@
   * @{
   */
 /* Driver for PMIC ---------------------------------------------------------------*/
+#define USE_STPMIC1x                        1U
 #if (USE_STPMIC1x == 1)
 #define NAME_LENGHT 15U
 
