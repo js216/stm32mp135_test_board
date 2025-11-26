@@ -1,64 +1,11 @@
-/**
-  ******************************************************************************
-  * @file    stm32mp13xx_disco_bus.h
-  * @author  MCD Application Team
-  * @brief   This file contains definitions for hardware resources.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2020-2021 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef STM32MP13XX_DISCO_BUS_H
 #define STM32MP13XX_DISCO_BUS_H
 
-#ifdef __cplusplus
- extern "C" {
-#endif
-
-
- /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_disco_errno.h"
 #include "stm32mp13xx_hal.h"
 
-/** @addtogroup BSP
-  * @{
-  */
-
-/** @addtogroup STM32MP13XX_DISCO_BUS
-  * @{
-  */
-
-/** @defgroup STM32MP13XX_DISCO_BUS_Exported_Constants BUS Exported Constants
-  * @{
-  */
-
-
-/* Exported constant IO ------------------------------------------------------*/
-
- /**
-   * @brief AUDIO Slave I2C address
-   */
- #define AUDIO_I2C_ADDRESS                ((uint16_t)0x36U)
-
-/**
-  * @brief STPMU1 I2C address
-  * (NVM_SECTOR3_REGISTER_7 & 0x7F) << 1
-  */
 #define STPMU1_I2C_ADDRESS               ((0x33U & 0x7FU) << 1 )
 
-/* I2C clock speed configuration (in Hz)
-   WARNING:
-   Make sure that this define is not already declared in other files (ie.
-   stm32mp13xx_disco.h file). It can be used in parallel by other modules. */
 #ifndef I2C_SPEED
  #define I2C_SPEED                        ((uint32_t)100000U)
 #endif /* I2C_SPEED */
@@ -222,25 +169,5 @@ int32_t BSP_I2C1_RegisterMspCallbacks (BSP_I2C_Cb_t *Callback);
 __weak HAL_StatusTypeDef MX_I2C5_Init(I2C_HandleTypeDef *phI2c);
 __weak HAL_StatusTypeDef MX_I2C4_Init(I2C_HandleTypeDef *phI2c);
 __weak HAL_StatusTypeDef MX_I2C1_Init(I2C_HandleTypeDef *phI2c);
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

@@ -2,8 +2,6 @@
 #define SETUP_H
 
 #include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_disco.h"
-#include "stm32mp13xx_disco_stpmic1.h"
 
 // clocks and memory
 void SystemClock_Config(void);
@@ -23,6 +21,9 @@ void MX_UART4_Init(void);
 int __io_putchar(int ch);
 int __io_getchar (void);
 void Error_Handler(void);
+
+// SD
+SD_HandleTypeDef setup_sd(void);
 
 #endif // SETUP_H
 

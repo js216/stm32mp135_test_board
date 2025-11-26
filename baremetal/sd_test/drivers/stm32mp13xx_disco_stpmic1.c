@@ -17,10 +17,10 @@
   */
 
 /* Includes ----------------------------------------------------------------------*/
-#include "stm32mp13xx_disco.h"
 #include "stm32mp13xx_disco_bus.h"
 #include "stm32mp13xx_disco_stpmic1.h"
 #include <string.h>
+#include "setup.h"
 
 #define BSP_ENTER_CRITICAL_SECTION(periph)  ((void)0)
 #define BSP_EXIT_CRITICAL_SECTION(periph)   ((void)0)
@@ -814,7 +814,7 @@ static regul_struct *STPMU1_Get_Regulator_Data(PMIC_RegulId_TypeDef id)
     }
   }
   /* id not found */
-  BSP_Error_Handler();
+  Error_Handler();
   return NULL;
 }
 
@@ -829,7 +829,7 @@ static uint8_t STPMU1_Voltage_Find_Index(PMIC_RegulId_TypeDef id, uint16_t miliv
     }
   }
   /* voltage not found */
-  BSP_Error_Handler();
+  Error_Handler();
   return 0;
 }
 
@@ -954,7 +954,7 @@ uint8_t STPMU1_Register_Read(uint8_t register_id)
   /* Check the communication status */
   if(status != (uint32_t)BSP_ERROR_NONE)
   {
-    BSP_Error_Handler();
+    Error_Handler();
   }
   return Value;
 }
@@ -968,7 +968,7 @@ void STPMU1_Register_Write(uint8_t register_id, uint8_t value)
   /* Check the communication status */
   if(status != (uint32_t)BSP_ERROR_NONE)
   {
-    BSP_Error_Handler();
+    Error_Handler();
   }
 
   /* verify register content */
@@ -977,7 +977,7 @@ void STPMU1_Register_Write(uint8_t register_id, uint8_t value)
     uint8_t readval = STPMU1_Register_Read(register_id);
     if (readval != value)
     {
-      BSP_Error_Handler();
+      Error_Handler();
     }
   }
   return ;

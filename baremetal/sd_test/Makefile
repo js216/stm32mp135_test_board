@@ -28,7 +28,6 @@ SOURCES = \
 	 drivers/stm32mp13xx_hal_uart_ex.c \
 	 drivers/stm32mp13xx_ll_delayblock.c \
 	 drivers/stm32mp13xx_ll_sdmmc.c \
-	 drivers/stm32mp13xx_disco.c \
 	 drivers/stm32mp13xx_disco_bus.c \
 	 drivers/stm32mp13xx_disco_stpmic1.c \
 

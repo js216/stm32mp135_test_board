@@ -1,8 +1,8 @@
 #include "setup.h"
-
 #include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_disco.h"
 #include "stm32mp13xx_disco_stpmic1.h"
+#include "stm32mp13xx_hal_etzpc.h"
+#include <stdio.h>
 
 // global variables
 DDR_InitTypeDef hddr;
@@ -463,10 +463,50 @@ int __io_getchar (void)
 void Error_Handler(void)
 {
    while (1) {
-      BSP_LED_Toggle(LED_RED);
-      HAL_Delay(1000);
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+      HAL_Delay(50);
    }
 }
 
-// end file setup.c
+void assert_failed(uint8_t* file, uint32_t line)
+{
+   printf("File %s line %d: assert failed.\r\n", file, line);
 
+   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+   HAL_Delay(50);
+}
+
+SD_HandleTypeDef setup_sd(void)
+{
+   // unsecure SYSRAM so that SDMMC1 (which we configure as non-secure) can access it
+   LL_ETZPC_SetSecureSysRamSize(ETZPC, 0);
+
+   // unsecure SDMMC1
+   LL_ETZPC_Set_SDMMC1_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE);
+
+   // initialize SDMMC1
+   static SD_HandleTypeDef SDHandle;
+   SDHandle.Instance = SDMMC1;
+   HAL_SD_DeInit(&SDHandle);
+
+   // SDMMC IP clock xx MHz, SDCard clock xx MHz
+   SDHandle.Init.ClockEdge           = SDMMC_CLOCK_EDGE_RISING;
+   SDHandle.Init.ClockPowerSave      = SDMMC_CLOCK_POWER_SAVE_DISABLE;
+   SDHandle.Init.BusWide             = SDMMC_BUS_WIDE_4B;
+   SDHandle.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
+   SDHandle.Init.ClockDiv            = SDMMC_NSPEED_CLK_DIV;
+
+   if (HAL_SD_Init(&SDHandle) != HAL_OK) {
+      printf("Error in HAL_SD_Init()\r\n");
+      Error_Handler();
+   }
+
+   while (HAL_SD_GetCardState(&SDHandle) != HAL_SD_CARD_TRANSFER)
+      ;
+
+   return SDHandle;
+}
+
+
+
+// end file setup.c
