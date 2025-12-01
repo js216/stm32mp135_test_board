@@ -1,21 +1,9 @@
-# Program loading from SD to DDR
+# Data loading from SD to DDR
 
-This program runs on the STM32MP135F-DK evaluation board, initializing the DDR3L
-memory and the SD card, then copying an executable from the SD card to the
-memory, and executing it.
-
-This program is adapted from the `FSBLA_Sdmmc1` example from the `STM32CubeMP13`
-package provided by ST.
+This program runs on the custom board and checks that data can be loaded from
+the SD card to the DDR memory.
 
 ### Getting started
-
-Pre-requisites: copy an executable program to the SD card, and adjust the
-location (flash offset) and size of this executable in `main.c`:
-
-    // copy from SD card to DDR memory
-    read_sd_blocking(0x4600/BLOCKSIZE, 132);
-
-A suitable program for execution is given in the `blink_ddr` example.
 
 1. To compile the program, run Make from the build directory:
 
@@ -29,7 +17,10 @@ A suitable program for execution is given in the `blink_ddr` example.
    See `uart_boot` for details on how to configure the hardware to accept the
    program bitstream over UART.
 
-3. Monitor the UART for messages about the status of the memory test.
+3. Monitor the UART for messages about the status of the memory test, or use the
+   build in Python miniterm:
+
+       $ make term
 
 ### Author
 

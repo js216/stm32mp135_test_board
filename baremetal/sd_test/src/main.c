@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <ctype.h>
 #include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_disco_stpmic1.h"
 #include "setup.h"
+
+// global variables
+SD_HandleTypeDef SDHandle;
 
 void print_ddr(const int num_words)
 {
@@ -38,39 +40,61 @@ void print_ddr(const int num_words)
    }
 }
 
+void fill_dram(const int num_bytes) {
+    uint32_t *p = (uint32_t *)DRAM_MEM_BASE;
+    int i = 0;
 
-void read_sd_blocking(const int app_offset, const int num_blocks)
-{
-   const int read_timeout = 3000;
-   SD_HandleTypeDef SDHandle = setup_sd();
-   if (HAL_SD_ReadBlocks(&SDHandle, (uint8_t*)DRAM_MEM_BASE, app_offset, num_blocks, read_timeout) != HAL_OK) {
-      printf("Error in HAL_SD_ReadBlocks()\r\n");
-      Error_Handler();
-   }
+    // write 4 bytes per word
+    while (i < num_bytes) {
+        uint8_t b0 = (uint8_t)(i & 0xFF);
+        uint8_t b1 = (uint8_t)((i+1) & 0xFF);
+        uint8_t b2 = (uint8_t)((i+2) & 0xFF);
+        uint8_t b3 = (uint8_t)((i+3) & 0xFF);
+
+        uint32_t word = (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+        *p++ = word;
+
+        i += 4;
+    }
 }
-
-void print_sd(const int offs, const int num_blocks)
+void read_sd_blocking(void)
 {
-   read_sd_blocking(0, 132);
-   print_ddr(BLOCKSIZE / 4);
+    const int app_offset = 0;
+    const int num_blocks = 1;
+    const int read_timeout = 3000;
+
+    static uint8_t block[BLOCKSIZE];  // static array for one block
+
+    if (HAL_SD_ReadBlocks(&SDHandle, block, app_offset, num_blocks, read_timeout) != HAL_OK) {
+        printf("Error in HAL_SD_ReadBlocks()\r\n");
+        Error_Handler();
+    }
+
+    // Copy to DRAM in 32-bit words
+    // (Copying byte by byte cause weird data corruption)
+    uint32_t *p = (uint32_t *)DRAM_MEM_BASE;
+    for (int i = 0; i < 512; i += 4) {
+       uint32_t word = (block[i+3] << 24) | (block[i+2] << 16) | (block[i+1] << 8) | block[i];
+       *p++ = word;
+    }
 }
 
 int main(void)
 {
    HAL_Init();
    SystemClock_Config();
-   BSP_PMIC_Init();
-   BSP_PMIC_InitRegulators();
    PeriphCommonClock_Config();
    MX_UART4_Init();
    __HAL_RCC_GPIOA_CLK_ENABLE();
    setup_ddr();
-   setup_sd();
+   SDHandle = setup_sd();
 
    while (1) {
-      printf("\r\nHello World!\r\n");
+      printf("\r\n");
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
-      HAL_Delay(500);
-      print_sd(0, 10);
+      HAL_Delay(50);
+
+      read_sd_blocking();
+      print_ddr(BLOCKSIZE / 4);
    }
 }

@@ -28,11 +28,13 @@ def get_ack(dev, note="", do_print=False):
         # try again
         r = dev.read_bytes(1)[0]
 
+    if r == 0:
+        r = dev.read_bytes(1)[0]
+
     if do_print:
         print(f"{format(r, '#04x')}\t\t{interp_byte(r)}{note}")
     if interp_byte(r) != "ACK":
-        raise RuntimeError("Did not receive ACK.")
-
+        raise RuntimeError(f"Did not receive ACK, but {hex(r)}.")
 
 def uart_init(dev):
     dev.write_raw(struct.pack("B", 0x7F))

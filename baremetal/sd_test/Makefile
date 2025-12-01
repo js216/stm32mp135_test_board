@@ -1,3 +1,5 @@
+PORT = COM20
+
 BUILDDIR   = build
 BINARYNAME = $(BUILDDIR)/main
 OBJDIR     = $(BUILDDIR)/obj
@@ -60,7 +62,7 @@ LFLAGS = \
 	 -ffreestanding \
 	 -Wl,--print-memory-usage \
 
-.PHONY: all clean install check-port
+.PHONY: all clean install check-port term
 
 all: $(BINARYNAME).stm32
 
@@ -71,6 +73,9 @@ check-port:
 ifndef PORT
 	$(error PORT not set. Usage: make install PORT=COM1)
 endif
+
+term: check-port
+	python3 -m serial.tools.miniterm $(PORT) 115200
 
 install: $(BINARYNAME).stm32 check-port
 	python3 scripts/uart_boot.py -c $(PORT) -f $<
