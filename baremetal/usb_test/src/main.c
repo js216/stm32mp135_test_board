@@ -100,6 +100,8 @@ int main(void)
    printf("OTG_GINTMSK: 0x%08X\r\n", USB_OTG_HS->GINTMSK);
    printf("OTG_GCCFG: 0x%08X\r\n", USB_OTG_HS->GCCFG);
 
+   USB_OTG_HS->GINTMSK = USB_OTG_GINTMSK_USBSUSPM;
+
    while (1) {
       printf(":"); fflush(stdout);
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);

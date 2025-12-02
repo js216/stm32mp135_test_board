@@ -1,0 +1,2 @@
+#Opt	Id	Name	Type	IP	Offset	Binary
+-	0x01	fsbl1-boot	Binary	none	0x0	build/main.stm32

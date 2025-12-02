@@ -377,10 +377,6 @@ void HAL_SD_MspInit(SD_HandleTypeDef *hsd)
    GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
    GPIO_Init_Structure.Pin       = GPIO_PIN_2;
    HAL_GPIO_Init(GPIOD, &GPIO_Init_Structure);
-
-   /* Enable configuration for SDMMC interrupts */
-   IRQ_SetPriority(SDMMC1_IRQn, 0x00);
-   IRQ_Enable(SDMMC1_IRQn);
 }
 
 
