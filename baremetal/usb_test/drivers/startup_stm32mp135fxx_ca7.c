@@ -486,7 +486,7 @@ void Reset_Handler(void) {
   "BIC     R0, R0, #(0x1 << 11)                    \n"  /* Clear Z bit 11 to disable branch prediction */
   "BIC     R0, R0, #(0x1 << 13)                    \n"  /* Clear V bit 13 to disable hivecs */
   "BIC     R0, R0, #(0x1 << 29)                    \n"  /* Clear AFE bit 29 to enable the full range of access permissions */
-  "ORR     R0, R0, #(0x1 << 30)                    \n"  /* Set TE bit to take exceptions in Thumb mode */
+  "BIC R0, R0, #(1 << 30)                          \n"  /* TE = 0, exceptions enter ARM mode */
   "MCR     p15, 0, R0, c1, c0, 0                   \n"  /* Write value back to CP15 System Control register */
   "ISB                                             \n"
 

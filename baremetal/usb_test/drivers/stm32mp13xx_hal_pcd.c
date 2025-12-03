@@ -969,13 +969,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
   uint32_t fifoemptymsk;
   uint32_t RegVal;
 
-  // TODO: remove this
-  while (1) {
-     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
-     for (int i=0; i<1000000; i++)
-        ;
-  }
-
   /* ensure that we are in device mode */
   if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)
   {

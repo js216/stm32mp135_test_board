@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_etzpc.h"
 #include "setup.h"
 
 void print_ddr(const int num_words)
@@ -95,6 +96,7 @@ int main(void)
 
    // connect USB
    MX_USB_OTG_HS_PCD_Init();
+   LL_ETZPC_Set_OTG_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE);
    HAL_PCD_Start(&hpcd_USB_OTG_HS);
    printf("OTG_GAHBCFG: 0x%08X\r\n", USB_OTG_HS->GAHBCFG);
    printf("OTG_GINTMSK: 0x%08X\r\n", USB_OTG_HS->GINTMSK);
