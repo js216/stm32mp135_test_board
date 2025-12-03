@@ -1,6 +1,3 @@
-// TODO: remove this
-#include <stdio.h>
-
 /**
   ******************************************************************************
   * @file    stm32mp13xx_hal_pcd.c
@@ -972,15 +969,12 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
   uint32_t fifoemptymsk;
   uint32_t RegVal;
 
-  printf("HAL_PCD_IRQHandler() GINTSTS=0x%08lx\r\n", hpcd->Instance->GINTSTS);
-
   /* ensure that we are in device mode */
   if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)
   {
     /* avoid spurious interrupt */
     if (__HAL_PCD_IS_INVALID_INTERRUPT(hpcd))
     {
-       printf("  SPURIOUS interrupt\r\n");
       return;
     }
 
@@ -999,10 +993,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
       USB_MASK_INTERRUPT(hpcd->Instance, USB_OTG_GINTSTS_RXFLVL);
 
       RegVal = USBx->GRXSTSP;
-      printf("  RX FIFO: ep=%lu pktsts=0x%lx bcnt=%lu\r\n", 
-             RegVal & USB_OTG_GRXSTSP_EPNUM,
-             (RegVal & USB_OTG_GRXSTSP_PKTSTS) >> 17,
-             (RegVal & USB_OTG_GRXSTSP_BCNT) >> 4);
 
       ep = &hpcd->OUT_ep[RegVal & USB_OTG_GRXSTSP_EPNUM];
 
@@ -1020,9 +1010,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
       else if (((RegVal & USB_OTG_GRXSTSP_PKTSTS) >> 17) == STS_SETUP_UPDT)
       {
         (void)USB_ReadPacket(USBx, (uint8_t *)hpcd->Setup, 8U);
-        printf("    SETUP DATA: %02x %02x %02x %02x %02x %02x %02x %02x\r\n",
-               hpcd->Setup[0], hpcd->Setup[1], hpcd->Setup[2], hpcd->Setup[3],
-               hpcd->Setup[4], hpcd->Setup[5], hpcd->Setup[6], hpcd->Setup[7]);
         ep->xfer_count += (RegVal & USB_OTG_GRXSTSP_BCNT) >> 4;
       }
       else
@@ -1035,7 +1022,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
 
     if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_OEPINT))
     {
-        printf("  OUT EP interrupt mask=0x%08lx\r\n", ep_intr);
       epnum = 0U;
 
       /* Read in the device interrupt bits */
@@ -1055,7 +1041,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
 
           if ((epint & USB_OTG_DOEPINT_STUP) == USB_OTG_DOEPINT_STUP)
           {
-             printf("    SETUP on EP%lu\r\n", epnum);
             CLEAR_OUT_EP_INTR(epnum, USB_OTG_DOEPINT_STUP);
             /* Class B setup phase done for previous decoded setup */
             (void)PCD_EP_OutSetupPacket_int(hpcd, epnum);
@@ -1112,8 +1097,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
       /* Read in the device interrupt bits */
       ep_intr = USB_ReadDevAllInEpInterrupt(hpcd->Instance);
 
-      printf("  IN EP interrupt mask=0x%08lx\r\n", ep_intr);
-
       epnum = 0U;
 
       while (ep_intr != 0U)
@@ -1122,12 +1105,8 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
         {
           epint = USB_ReadDevInEPInterrupt(hpcd->Instance, (uint8_t)epnum);
 
-          printf("    IN EP%lu int=0x%08lx\r\n", epnum, epint);
-
           if ((epint & USB_OTG_DIEPINT_XFRC) == USB_OTG_DIEPINT_XFRC)
           {
-             printf("    IN EP%lu XFRC complete\r\n", epnum);
-
             fifoemptymsk = (uint32_t)(0x1UL << (epnum & EP_ADDR_MSK));
             USBx_DEVICE->DIEPEMPMSK &= ~fifoemptymsk;
 
@@ -1263,7 +1242,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
     /* Handle Reset Interrupt */
     if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_USBRST))
     {
-       printf("  USB RESET\r\n");
       USBx_DEVICE->DCTL &= ~USB_OTG_DCTL_RWUSIG;
       (void)USB_FlushTxFifo(hpcd->Instance, 0x10U);
 
@@ -1313,7 +1291,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
     /* Handle Enumeration done Interrupt */
     if (__HAL_PCD_GET_FLAG(hpcd, USB_OTG_GINTSTS_ENUMDNE))
     {
-      printf("  ENUMERATION DONE, speed=%d\r\n", USB_GetDevSpeed(hpcd->Instance));
       (void)USB_ActivateSetup(hpcd->Instance);
       hpcd->Init.speed = USB_GetDevSpeed(hpcd->Instance);
 
@@ -1431,10 +1408,6 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
       }
       hpcd->Instance->GOTGINT |= RegVal;
     }
-  }
-
-  else {
-     printf("HAL_PCD_IRQHandler() NOT IN DEVICE MODE\r\n");
   }
 }
 #endif /* defined (USB_OTG_HS) */
