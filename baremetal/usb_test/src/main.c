@@ -96,13 +96,8 @@ int main(void)
 
    // connect USB
    MX_USB_OTG_HS_PCD_Init();
-   LL_ETZPC_Set_OTG_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE);
+   LL_ETZPC_Set_OTG_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE); // TODO: is this needed?
    HAL_PCD_Start(&hpcd_USB_OTG_HS);
-   printf("OTG_GAHBCFG: 0x%08X\r\n", USB_OTG_HS->GAHBCFG);
-   printf("OTG_GINTMSK: 0x%08X\r\n", USB_OTG_HS->GINTMSK);
-   printf("OTG_GCCFG: 0x%08X\r\n", USB_OTG_HS->GCCFG);
-
-   USB_OTG_HS->GINTMSK = USB_OTG_GINTMSK_USBSUSPM;
 
    while (1) {
       printf(":"); fflush(stdout);
