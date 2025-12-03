@@ -718,12 +718,14 @@ static int8_t SCSI_Read10(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t *params
       return -1;
     }
 
-    hmsc->scsi_blk_addr = ((uint32_t)params[2] << 24) |
-                          ((uint32_t)params[3] << 16) |
-                          ((uint32_t)params[4] <<  8) |
-                          (uint32_t)params[5];
+    // Force byte-by-byte access - use volatile to prevent optimization
+    hmsc->scsi_blk_addr = (((uint32_t)((volatile uint8_t*)params)[2]) << 24) |
+       (((uint32_t)((volatile uint8_t*)params)[3]) << 16) |
+       (((uint32_t)((volatile uint8_t*)params)[4]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[5]);
 
-    hmsc->scsi_blk_len = ((uint32_t)params[7] <<  8) | (uint32_t)params[8];
+    hmsc->scsi_blk_len  = (((uint32_t)((volatile uint8_t*)params)[7]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[8]);
 
     if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
                                hmsc->scsi_blk_len) < 0)
@@ -783,15 +785,17 @@ static int8_t SCSI_Read12(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t *params
       return -1;
     }
 
-    hmsc->scsi_blk_addr = ((uint32_t)params[2] << 24) |
-                          ((uint32_t)params[3] << 16) |
-                          ((uint32_t)params[4] <<  8) |
-                          (uint32_t)params[5];
+    // Force byte-by-byte access - use volatile to prevent optimization
+    hmsc->scsi_blk_addr = (((uint32_t)((volatile uint8_t*)params)[2]) << 24) |
+       (((uint32_t)((volatile uint8_t*)params)[3]) << 16) |
+       (((uint32_t)((volatile uint8_t*)params)[4]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[5]);
 
-    hmsc->scsi_blk_len = ((uint32_t)params[6] << 24) |
-                         ((uint32_t)params[7] << 16) |
-                         ((uint32_t)params[8] << 8) |
-                         (uint32_t)params[9];
+    hmsc->scsi_blk_len  = (((uint32_t)((volatile uint8_t*)params)[6]) << 24) |
+       (((uint32_t)((volatile uint8_t*)params)[7]) << 16) |
+       (((uint32_t)((volatile uint8_t*)params)[8]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[9]);
+
 
     if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
                                hmsc->scsi_blk_len) < 0)
@@ -865,13 +869,15 @@ static int8_t SCSI_Write10(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t *param
       return -1;
     }
 
-    hmsc->scsi_blk_addr = ((uint32_t)params[2] << 24) |
-                          ((uint32_t)params[3] << 16) |
-                          ((uint32_t)params[4] << 8) |
-                          (uint32_t)params[5];
+    // Force byte-by-byte access - use volatile to prevent optimization
+    hmsc->scsi_blk_addr = (((uint32_t)((volatile uint8_t*)params)[2]) << 24) |
+       (((uint32_t)((volatile uint8_t*)params)[3]) << 16) |
+       (((uint32_t)((volatile uint8_t*)params)[4]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[5]);
 
-    hmsc->scsi_blk_len = ((uint32_t)params[7] << 8) |
-                         (uint32_t)params[8];
+    hmsc->scsi_blk_len  = (((uint32_t)((volatile uint8_t*)params)[7]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[8]);
+
 
     /* check if LBA address is in the right range */
     if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
@@ -956,15 +962,16 @@ static int8_t SCSI_Write12(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t *param
       return -1;
     }
 
-    hmsc->scsi_blk_addr = ((uint32_t)params[2] << 24) |
-                          ((uint32_t)params[3] << 16) |
-                          ((uint32_t)params[4] << 8) |
-                          (uint32_t)params[5];
+    // Force byte-by-byte access - use volatile to prevent optimization
+    hmsc->scsi_blk_addr = (((uint32_t)((volatile uint8_t*)params)[2]) << 24) |
+       (((uint32_t)((volatile uint8_t*)params)[3]) << 16) |
+       (((uint32_t)((volatile uint8_t*)params)[4]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[5]);
 
-    hmsc->scsi_blk_len = ((uint32_t)params[6] << 24) |
-                         ((uint32_t)params[7] << 16) |
-                         ((uint32_t)params[8] << 8) |
-                         (uint32_t)params[9];
+    hmsc->scsi_blk_len  = (((uint32_t)((volatile uint8_t*)params)[6]) << 24) |
+       (((uint32_t)((volatile uint8_t*)params)[7]) << 16) |
+       (((uint32_t)((volatile uint8_t*)params)[8]) <<  8) |
+       ((uint32_t)((volatile uint8_t*)params)[9]);
 
     /* check if LBA address is in the right range */
     if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
