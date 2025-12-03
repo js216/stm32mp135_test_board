@@ -84,7 +84,7 @@ typedef struct
   uint8_t  bmFlags;
   uint8_t  bLUN;
   uint8_t  bCBLength;
-  uint8_t  CB[16];
+  uint8_t  CB[16] __attribute__((aligned(4)));;
   uint8_t  ReservedForAlign;
 } USBD_MSC_BOT_CBWTypeDef;
 

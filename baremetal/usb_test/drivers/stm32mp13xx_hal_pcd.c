@@ -1112,6 +1112,8 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
       /* Read in the device interrupt bits */
       ep_intr = USB_ReadDevAllInEpInterrupt(hpcd->Instance);
 
+      printf("  IN EP interrupt mask=0x%08lx\r\n", ep_intr);
+
       epnum = 0U;
 
       while (ep_intr != 0U)
@@ -1120,8 +1122,12 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
         {
           epint = USB_ReadDevInEPInterrupt(hpcd->Instance, (uint8_t)epnum);
 
+          printf("    IN EP%lu int=0x%08lx\r\n", epnum, epint);
+
           if ((epint & USB_OTG_DIEPINT_XFRC) == USB_OTG_DIEPINT_XFRC)
           {
+             printf("    IN EP%lu XFRC complete\r\n", epnum);
+
             fifoemptymsk = (uint32_t)(0x1UL << (epnum & EP_ADDR_MSK));
             USBx_DEVICE->DIEPEMPMSK &= ~fifoemptymsk;
 

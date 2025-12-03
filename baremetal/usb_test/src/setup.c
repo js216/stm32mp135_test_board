@@ -14,6 +14,13 @@ SD_HandleTypeDef SDHandle;
 USBD_HandleTypeDef hUsbDeviceFS;
 USBD_HandleTypeDef USBD_Device;
 
+void Undef_Handler (void) {while(1);};
+void SVC_Handler   (void) {while(1);};
+void PAbt_Handler  (void) {while(1);};
+void DAbt_Handler  (void) {while(1);};
+void Rsvd_Handler  (void) {while(1);};
+void FIQ_Handler   (void) {while(1);};
+
 void error_msg(const char *msg)
 {
    while (1) {
