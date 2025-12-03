@@ -3,11 +3,14 @@
 #include "stm32mp13xx_hal_etzpc.h"
 #include "stm32mp13xx_hal_pcd.h"
 #include <stdio.h>
+#include "usbd_core.h"
+#include "usbd_msc.h"
 
 // global variables
 UART_HandleTypeDef huart4;
 SD_HandleTypeDef SDHandle;
 PCD_HandleTypeDef hpcd_USB_OTG_HS;
+USBD_HandleTypeDef hUsbDeviceFS;
 
 void OTG_IRQHandler(void)
 {

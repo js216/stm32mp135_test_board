@@ -200,6 +200,10 @@ SECTIONS
         . = ALIGN(8);
     } >RAM
 
+    .virtdrive (NOLOAD):
+    {
+       *(.virtdrive)
+     } > DDR_BASE
 
   /* Remove information from the compiler libraries */
   /DISCARD/ :

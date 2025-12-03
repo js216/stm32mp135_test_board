@@ -33,6 +33,16 @@ SOURCES = \
 	 drivers/stm32mp13xx_ll_delayblock.c \
 	 drivers/stm32mp13xx_ll_sdmmc.c \
 	 drivers/stm32mp13xx_ll_usb.c \
+	 drivers/usbd_core.c \
+	 drivers/usbd_ctlreq.c \
+	 drivers/usbd_ioreq.c \
+	 drivers/usbd_msc.c \
+	 drivers/usbd_msc_bot.c \
+	 drivers/usbd_msc_data.c \
+	 drivers/usbd_msc_scsi.c \
+	 src/usbd_conf.c \
+	 src/usbd_desc.c \
+	 src/usbd_msc_storage.c \
 
 INCLUDES = \
 	 -Isrc \
