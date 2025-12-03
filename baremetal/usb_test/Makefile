@@ -50,7 +50,7 @@ INCLUDES = \
 
 CFLAGS = \
 	 -g2 \
-	 -Og \
+	 -Os \
 	 -fno-common \
 	 -DUSE_FULL_LL_DRIVER \
 	 -DSTM32MP135Fxx \

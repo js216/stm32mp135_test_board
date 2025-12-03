@@ -969,6 +969,9 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
   uint32_t fifoemptymsk;
   uint32_t RegVal;
 
+  // TODO: remove this
+  printf("HAL_PCD_IRQHandler()\r\n");
+
   /* ensure that we are in device mode */
   if (USB_GetMode(hpcd->Instance) == USB_OTG_MODE_DEVICE)
   {

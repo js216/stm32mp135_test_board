@@ -39,7 +39,8 @@ EndBSPDependencies */
 #define STORAGE_BLK_NBR                  0x10000U
 #define STORAGE_BLK_SIZ                  0x200U
 
-static __attribute__((section(".virtdrive"))) uint8_t virtdrive[STORAGE_BLK_NBR * STORAGE_BLK_SIZ];
+__attribute__((section(".virtdrive"))) 
+static volatile uint8_t virtdrive[STORAGE_BLK_NBR * STORAGE_BLK_SIZ];
 
 int8_t STORAGE_Init(uint8_t lun);
 
@@ -77,7 +78,7 @@ int8_t  STORAGE_Inquirydata[] =  /* 36 */
   '0', '.', '0', '1',                     /* Version      : 4 Bytes */
 };
 
-USBD_StorageTypeDef USBD_MSC_Template_fops =
+USBD_StorageTypeDef USBD_MSC_fops=
 {
   STORAGE_Init,
   STORAGE_GetCapacity,

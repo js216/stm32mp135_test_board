@@ -118,7 +118,7 @@ static void Get_SerialNum(void);
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-uint8_t *USBD_Class_DeviceDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+uint8_t *USBD_MSC_DeviceDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   UNUSED(speed);
 
@@ -132,7 +132,7 @@ uint8_t *USBD_Class_DeviceDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-uint8_t *USBD_Class_LangIDStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+uint8_t *USBD_MSC_LangIDStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   UNUSED(speed);
 
@@ -146,7 +146,7 @@ uint8_t *USBD_Class_LangIDStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *lengt
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-uint8_t *USBD_Class_ProductStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+uint8_t *USBD_MSC_ProductStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   if (speed == USBD_SPEED_HIGH)
   {
@@ -165,7 +165,7 @@ uint8_t *USBD_Class_ProductStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *leng
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-uint8_t *USBD_Class_ManufacturerStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+uint8_t *USBD_MSC_ManufacturerStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   UNUSED(speed);
 
@@ -179,7 +179,7 @@ uint8_t *USBD_Class_ManufacturerStrDescriptor(USBD_SpeedTypeDef speed, uint16_t 
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-uint8_t *USBD_Class_SerialStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+uint8_t *USBD_MSC_SerialStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   UNUSED(speed);
 
@@ -197,7 +197,7 @@ uint8_t *USBD_Class_SerialStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *lengt
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-uint8_t *USBD_Class_ConfigStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+uint8_t *USBD_MSC_ConfigStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   if (speed == USBD_SPEED_HIGH)
   {
@@ -216,7 +216,7 @@ uint8_t *USBD_Class_ConfigStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *lengt
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-uint8_t *USBD_Class_InterfaceStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
+uint8_t *USBD_MSC_InterfaceStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length)
 {
   if (speed == USBD_SPEED_HIGH)
   {

@@ -32,9 +32,7 @@ void Error_Handler(void);
 SD_HandleTypeDef setup_sd(void);
 
 // USB
-void MX_USB_OTG_HS_PCD_Init(void);
-void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle);
-void HAL_PCD_MspDeInit(PCD_HandleTypeDef* pcdHandle);
+void usb_init(void);
 
 #endif // SETUP_H
 

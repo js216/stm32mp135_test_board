@@ -1,21 +1,18 @@
 #include "setup.h"
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_etzpc.h"
-#include "stm32mp13xx_hal_pcd.h"
+#include "usbd_conf.h"
 #include <stdio.h>
 #include "usbd_core.h"
 #include "usbd_msc.h"
+#include "usbd_desc.h"
+#include "usbd_msc_storage.h"
 
 // global variables
 UART_HandleTypeDef huart4;
 SD_HandleTypeDef SDHandle;
-PCD_HandleTypeDef hpcd_USB_OTG_HS;
 USBD_HandleTypeDef hUsbDeviceFS;
-
-void OTG_IRQHandler(void)
-{
-    HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
-}
+USBD_HandleTypeDef USBD_Device;
 
 void error_msg(const char *msg)
 {
@@ -463,76 +460,14 @@ SD_HandleTypeDef setup_sd(void)
    return SDHandle;
 }
 
-void MX_USB_OTG_HS_PCD_Init(void)
+void usb_init(void)
 {
-   memset(&hpcd_USB_OTG_HS, 0x0, sizeof(PCD_HandleTypeDef));
+   LL_ETZPC_Set_OTG_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE); // TODO: is this needed?
 
-   hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
-   hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
-   hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_HIGH;
-   hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_HS_EMBEDDED_PHY;
-   hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = DISABLE;
-   hpcd_USB_OTG_HS.Init.use_external_vbus = DISABLE;
-   if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)
-   {
-      Error_Handler();
-   }
-}
-
-void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
-{
-
-   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
-   if(pcdHandle->Instance==USB_OTG_HS)
-   {
-      /** Initializes the peripherals clock
-      */
-      PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USBPHY;
-      PeriphClkInitStruct.UsbphyClockSelection = RCC_USBPHYCLKSOURCE_HSE;
-      if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
-      {
-         Error_Handler();
-      }
-
-      /* Enable USBPHY Clock */
-      __HAL_RCC_USBPHY_CLK_ENABLE();
-
-      PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USBO;
-      PeriphClkInitStruct.UsboClockSelection = RCC_USBOCLKSOURCE_PHY;
-      if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
-      {
-         Error_Handler();
-      }
-
-      /* USB_OTG_HS clock enable */
-      __HAL_RCC_USBO_CLK_ENABLE();
-      __HAL_RCC_USBO_FORCE_RESET();
-      __HAL_RCC_USBO_RELEASE_RESET();
-
-      /* USB_OTG_HS interrupt Init */
-      IRQ_SetPriority(OTG_IRQn, 6);
-      IRQ_Enable(OTG_IRQn);
-   }
-}
-
-void HAL_PCD_MspDeInit(PCD_HandleTypeDef* pcdHandle)
-{
-
-   if(pcdHandle->Instance==USB_OTG_HS)
-   {
-      /* Peripheral clock disable */
-      __HAL_RCC_USBO_CLK_DISABLE();
-
-      __HAL_RCC_USBO_FORCE_RESET();
-
-      /* USB_OTG_HS interrupt Deinit */
-      IRQ_Disable(OTG_IRQn);
-   }
+   USBD_Init(&USBD_Device, &MSC_Desc, 0);
+   USBD_RegisterClass(&USBD_Device, USBD_MSC_CLASS);
+   USBD_MSC_RegisterStorage(&USBD_Device, &USBD_MSC_fops);
+   USBD_Start(&USBD_Device);
 }
 
 // end file setup.c

@@ -86,6 +86,7 @@ int main(void)
    __HAL_RCC_GPIOA_CLK_ENABLE();
    setup_ddr();
    SDHandle = setup_sd();
+   usb_init();
 
    HAL_Delay(1000);
    printf("Hello, world!\r\n");
@@ -93,11 +94,6 @@ int main(void)
    // SD and DDR test
    read_sd_blocking();
    print_ddr(BLOCKSIZE / 4);
-
-   // connect USB
-   MX_USB_OTG_HS_PCD_Init();
-   LL_ETZPC_Set_OTG_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE); // TODO: is this needed?
-   HAL_PCD_Start(&hpcd_USB_OTG_HS);
 
    while (1) {
       printf(":"); fflush(stdout);
