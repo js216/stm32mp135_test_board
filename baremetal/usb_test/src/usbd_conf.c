@@ -78,6 +78,11 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
       __HAL_RCC_USBO_FORCE_RESET();
       __HAL_RCC_USBO_RELEASE_RESET();
 
+      /* USBPHY clock enable */
+      __HAL_RCC_USBPHY_CLK_ENABLE();
+      __HAL_RCC_USBPHY_FORCE_RESET();
+      __HAL_RCC_USBPHY_RELEASE_RESET();
+
       /* USB_OTG_HS interrupt Init */
       IRQ_SetPriority(OTG_IRQn, 6);
       IRQ_Enable(OTG_IRQn);
@@ -98,6 +103,149 @@ void HAL_PCD_MspDeInit(PCD_HandleTypeDef* pcdHandle)
       IRQ_Disable(OTG_IRQn);
    }
 }
+
+/*******************************************************************************
+                                           LL Driver Callbacks (PCD -> USB Device Library)
+*******************************************************************************/
+
+/**
+ * @brief  SetupStage callback.
+ * @param  hpcd: PCD handle
+ * @retval None
+ */
+void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd)
+{
+        USBD_LL_SetupStage(hpcd->pData, (uint8_t *)hpcd->Setup);
+}
+
+/**
+ * @brief  DataOut Stage callback.
+ * @param  hpcd: PCD handle
+ * @param  epnum: Endpoint Number
+ * @retval None
+ */
+void HAL_PCD_DataOutStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
+{
+        USBD_LL_DataOutStage(hpcd->pData, epnum, hpcd->OUT_ep[epnum].xfer_buff);
+}
+
+/**
+ * @brief  DataIn Stage callback.
+ * @param  hpcd: PCD handle
+ * @param  epnum: Endpoint Number
+ * @retval None
+ */
+void HAL_PCD_DataInStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
+{
+        USBD_LL_DataInStage(hpcd->pData, epnum, hpcd->IN_ep[epnum].xfer_buff);
+}
+
+/**
+ * @brief  SOF callback.
+ * @param  hpcd: PCD handle
+ * @retval None
+ */
+void HAL_PCD_SOFCallback(PCD_HandleTypeDef *hpcd)
+{
+        USBD_LL_SOF(hpcd->pData);
+}
+
+/**
+ * @brief  Reset callback.
+ * @param  hpcd: PCD handle
+ * @retval None
+ */
+void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
+{
+        USBD_SpeedTypeDef speed = USBD_SPEED_FULL;
+
+        /* Set USB Current Speed */
+        switch (hpcd->Init.speed) {
+                case PCD_SPEED_HIGH:
+                        speed = USBD_SPEED_HIGH;
+                        break;
+
+                case PCD_SPEED_FULL:
+                        speed = USBD_SPEED_FULL;
+                        break;
+
+                default:
+                        speed = USBD_SPEED_FULL;
+                        break;
+        }
+
+        /* Reset Device */
+        USBD_LL_Reset(hpcd->pData);
+
+        USBD_LL_SetSpeed(hpcd->pData, speed);
+}
+
+/**
+ * @brief  Suspend callback.
+ * @param  hpcd: PCD handle
+ * @retval None
+ */
+void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
+{
+        USBD_LL_Suspend(hpcd->pData);
+}
+
+/**
+ * @brief  Resume callback.
+ * @param  hpcd: PCD handle
+ * @retval None
+ */
+void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
+{
+        USBD_LL_Resume(hpcd->pData);
+}
+
+/**
+ * @brief  ISOOUTIncomplete callback.
+ * @param  hpcd: PCD handle
+ * @param  epnum: Endpoint Number
+ * @retval None
+ */
+void HAL_PCD_ISOOUTIncompleteCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
+{
+        USBD_LL_IsoOUTIncomplete(hpcd->pData, epnum);
+}
+
+/**
+ * @brief  ISOINIncomplete callback.
+ * @param  hpcd: PCD handle
+ * @param  epnum: Endpoint Number
+ * @retval None
+ */
+void HAL_PCD_ISOINIncompleteCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum)
+{
+        USBD_LL_IsoINIncomplete(hpcd->pData, epnum);
+}
+
+/**
+ * @brief  ConnectCallback callback.
+ * @param  hpcd: PCD handle
+ * @retval None
+ */
+void HAL_PCD_ConnectCallback(PCD_HandleTypeDef *hpcd)
+{
+        USBD_LL_DevConnected(hpcd->pData);
+}
+
+/**
+ * @brief  Disconnect callback.
+ * @param  hpcd: PCD handle
+ * @retval None
+ */
+void HAL_PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
+{
+        USBD_LL_DevDisconnected(hpcd->pData);
+}
+
+/*******************************************************************************
+                                           LL Driver Interface (USB Device Library --> PCD)
+*******************************************************************************/
+
 /**
  * @brief  Initializes the Low Level portion of the Device driver.
  * @param  pdev: Device handle
@@ -132,9 +280,9 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
    }
 
    // TODO ????
-   // HAL_PCDEx_SetRxFiFo(&hpcd_USB_OTG_HS, 0x200);
-   // HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 0, 0x40);
-   // HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 1, 0x100);
+   HAL_PCDEx_SetRxFiFo(&hpcd_USB_OTG_HS, 0x200);
+   HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 0, 0x40);
+   HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 1, 0x100);
 
    return USBD_OK;
 }

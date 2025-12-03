@@ -30,7 +30,7 @@
 #define EXTERNAL_CLOCK_VALUE    12288000U /*!< Value of the External clock in Hz*/
 
 // System Configuration
-#define  TICK_INT_PRIORITY            0x00U /*!< tick interrupt priority */
+#define  TICK_INT_PRIORITY            0x0FU /*!< tick interrupt priority */
 
 #define assert_param(expr) ((expr) ? (void)0U : assert_failed((uint8_t *)__FILE__, __LINE__))
 void assert_failed(uint8_t* file, uint32_t line);
