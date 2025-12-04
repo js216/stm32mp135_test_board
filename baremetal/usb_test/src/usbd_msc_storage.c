@@ -36,7 +36,7 @@ EndBSPDependencies */
 /* Private functions ---------------------------------------------------------*/
 
 #define STORAGE_LUN_NBR                  1U
-#define STORAGE_BLK_NBR                  0x10000U
+#define STORAGE_BLK_NBR                  0x100000
 #define STORAGE_BLK_SIZ                  0x200U
 
 __attribute__((section(".virtdrive"))) 
@@ -155,9 +155,13 @@ int8_t  STORAGE_IsWriteProtected(uint8_t lun)
 int8_t STORAGE_Read(uint8_t lun, uint8_t *buf,
                     uint32_t blk_addr, uint16_t blk_len)
 {
-	for (uint16_t i = 0; i < (blk_len * STORAGE_BLK_SIZ); i++)
-		buf[i] = virtdrive[blk_addr * STORAGE_BLK_SIZ + i];
-	return USBD_OK;
+    volatile uint8_t *vbuf = (volatile uint8_t *)buf;
+    volatile uint8_t *vdrive = &virtdrive[blk_addr * STORAGE_BLK_SIZ];
+    
+    for (uint16_t i = 0; i < (blk_len * STORAGE_BLK_SIZ); i++)
+        vbuf[i] = vdrive[i];
+    
+    return USBD_OK;
 }
 
 /**
@@ -171,9 +175,22 @@ int8_t STORAGE_Read(uint8_t lun, uint8_t *buf,
 int8_t STORAGE_Write(uint8_t lun, uint8_t *buf,
                      uint32_t blk_addr, uint16_t blk_len)
 {
-	for (uint16_t i = 0; i < (blk_len * STORAGE_BLK_SIZ); i++)
-		virtdrive[blk_addr * STORAGE_BLK_SIZ + i] = buf[i];
-	return USBD_OK;
+    uint8_t *src = buf;
+    uint32_t *dst = (uint32_t *)&virtdrive[blk_addr * STORAGE_BLK_SIZ];
+
+    for (uint32_t blk = 0; blk < blk_len; blk++) {
+        for (int i = 0; i < STORAGE_BLK_SIZ; i += 4) {
+            uint32_t w =
+                ((uint32_t)src[i+3] << 24) |
+                ((uint32_t)src[i+2] << 16) |
+                ((uint32_t)src[i+1] << 8)  |
+                ((uint32_t)src[i+0]);
+            *dst++ = w; // 32-bit aligned write
+        }
+        src += STORAGE_BLK_SIZ;
+    }
+
+    return USBD_OK;
 }
 
 /**
