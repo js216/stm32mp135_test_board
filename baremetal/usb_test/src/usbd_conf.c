@@ -33,7 +33,7 @@
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-PCD_HandleTypeDef hpcd_USB_OTG_HS;
+PCD_HandleTypeDef hpcd;
 
 
 /* Private function prototypes -----------------------------------------------*/
@@ -41,7 +41,7 @@ PCD_HandleTypeDef hpcd_USB_OTG_HS;
 
 void OTG_IRQHandler(void)
 {
-   HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
+   HAL_PCD_IRQHandler(&hpcd);
 }
 
 /*******************************************************************************
@@ -253,36 +253,29 @@ void HAL_PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
  */
 USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
 {
-   memset(&hpcd_USB_OTG_HS, 0x0, sizeof(PCD_HandleTypeDef));
+   memset(&hpcd, 0x0, sizeof(PCD_HandleTypeDef));
+   hpcd.Instance = USB_OTG_HS;
+   hpcd.Init.dev_endpoints = 9;
+   hpcd.Init.speed = PCD_SPEED_HIGH;
+   hpcd.Init.dma_enable = DISABLE;
+   hpcd.Init.phy_itface = USB_OTG_HS_EMBEDDED_PHY;
+   hpcd.Init.Sof_enable = DISABLE;
+   hpcd.Init.low_power_enable = DISABLE;
+   hpcd.Init.lpm_enable = DISABLE;
+   hpcd.Init.vbus_sensing_enable = DISABLE;
+   hpcd.Init.use_dedicated_ep1 = DISABLE;
+   hpcd.Init.use_external_vbus = DISABLE;
+   hpcd.pData = pdev;
+   pdev->pData = &hpcd;
 
-   hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
-   hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
-   hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_HIGH;
-   hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_HS_EMBEDDED_PHY;
-   hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
-   hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = DISABLE;
-   hpcd_USB_OTG_HS.Init.use_external_vbus = DISABLE;
-
-   hpcd_USB_OTG_HS.pData = pdev;
-   pdev->pData = &hpcd_USB_OTG_HS;
-
-   // Force this to null, so ST USB library doesn't try to de-init it
-   // TODO ???
-   ((USBD_HandleTypeDef *)hpcd_USB_OTG_HS.pData)->pClassData = NULL;
-
-   if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK) {
+   if (HAL_PCD_Init(&hpcd) != HAL_OK) {
       Error_Handler();
       return USBD_FAIL;
    }
 
-   // TODO ????
-   HAL_PCDEx_SetRxFiFo(&hpcd_USB_OTG_HS, 0x200);
-   HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 0, 0x40);
-   HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 1, 0x100);
+   HAL_PCDEx_SetRxFiFo(&hpcd, 0x200);
+   HAL_PCDEx_SetTxFiFo(&hpcd, 0, 0x40);
+   HAL_PCDEx_SetTxFiFo(&hpcd, 1, 0x100);
 
    return USBD_OK;
 }

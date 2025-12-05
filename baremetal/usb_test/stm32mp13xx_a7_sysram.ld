@@ -43,8 +43,8 @@ MEMORY {
       SRAM1_BASE (rwx)    : ORIGIN = 0x30000000, LENGTH = 16K
       SRAM2_BASE (rwx)    : ORIGIN = 0x30004000, LENGTH = 8K
       SRAM3_BASE (rwx)    : ORIGIN = 0x30006000, LENGTH = 8K
-    /* InternalMEM = SYSRAM + SRAM1 + SRAM2 + SRAM3 */
-    InternalMEM (rwx)   : ORIGIN = 0x2FFE0000, LENGTH = 160K
+      /* InternalMEM = SYSRAM + SRAM1 + SRAM2 + SRAM3 */
+      InternalMEM (rwx)   : ORIGIN = 0x2FFE0000, LENGTH = 160K
       DDR_BASE (rwx)      : ORIGIN = 0xC0000000, LENGTH = 512M
 }
 
