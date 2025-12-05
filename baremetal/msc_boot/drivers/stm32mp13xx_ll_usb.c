@@ -41,6 +41,9 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_ll_usb.h"
+#include "stm32mp13xx_hal_rcc_ex.h"
+#include <stdint.h>
 
 /** @addtogroup STM32MP13xx_LL_USB_DRIVER
  * @{

@@ -31,6 +31,8 @@
 #ifndef __CMSIS_CP15_H
 #define __CMSIS_CP15_H
 
+#include <stdint.h>
+
 /** \brief  Get ACTLR
     \return               Auxiliary Control register value
  */

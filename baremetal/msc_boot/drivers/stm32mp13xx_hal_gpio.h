@@ -26,6 +26,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal_def.h"
+#include <stdint.h>
 
 /** @addtogroup STM32MP13xx_HAL_Driver
  * @{
@@ -123,9 +124,10 @@ typedef enum { GPIO_PIN_RESET = 0U, GPIO_PIN_SET } GPIO_PinState;
    (MODE_AF | OUTPUT_PP) /*!< Alternate Function Push Pull Mode */
 #define GPIO_MODE_AF_OD                                                        \
    (MODE_AF | OUTPUT_OD) /*!< Alternate Function Open Drain Mode */
-#define GPIO_MODE_AF (GPIO_MODE_AF_PP) /*!< Alternate Function for Input PIN   \
-                                        */
-#define GPIO_MODE_ANALOG MODE_ANALOG   /*!< Analog Mode */
+#define GPIO_MODE_AF                                                           \
+   (GPIO_MODE_AF_PP)                 /*!< Alternate Function for Input PIN     \
+                                      */
+#define GPIO_MODE_ANALOG MODE_ANALOG /*!< Analog Mode */
 #define GPIO_MODE_IT_RISING                                                    \
    (MODE_INPUT | EXTI_IT | TRIGGER_RISING) /*!< External Interrupt Mode with   \
                                               Rising edge trigger detection */

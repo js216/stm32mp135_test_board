@@ -26,6 +26,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_ll_usb.h"
+#include <stdint.h>
 
 #if defined(USB_OTG_HS)
 

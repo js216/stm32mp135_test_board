@@ -57,7 +57,10 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
+#include "stm32mp13xx_hal_rcc.h"
+#include "stm32mp13xx_hal_pcd.h"
 #include "stm32mp13xx_hal.h"
+#include <stdint.h>
 
 /** @addtogroup STM32MP13xx_HAL_Driver
  * @{

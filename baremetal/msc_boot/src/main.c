@@ -9,7 +9,9 @@
 
 #include "setup.h"
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_rcc.h"
 #include "stm32mp13xx_hal_etzpc.h"
+#include "stm32mp13xx_hal_gpio.h"
 #include <ctype.h>
 #include <stdio.h>
 

@@ -27,6 +27,7 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal_def.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #if defined(DDRCTRL) && defined(DDRPHYC)
 

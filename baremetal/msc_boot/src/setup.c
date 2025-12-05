@@ -9,7 +9,12 @@
 
 #include "setup.h"
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_ddr.h"
 #include "stm32mp13xx_hal_etzpc.h"
+#include "stm32mp13xx_hal_gpio.h"
+#include "stm32mp13xx_hal_sd.h"
+#include "stm32mp13xx_hal_uart.h"
+#include "stm32mp13xx_hal_rcc.h"
 #include "usbd_conf.h"
 #include "usbd_core.h"
 #include "usbd_desc.h"

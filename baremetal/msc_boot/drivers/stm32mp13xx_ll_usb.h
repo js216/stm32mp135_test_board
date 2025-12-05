@@ -26,6 +26,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal_def.h"
+#include <stdint.h>
 
 #if defined(USB_OTG_HS)
 /** @addtogroup STM32MP13xx_HAL_Driver

@@ -51,6 +51,7 @@
 #include "stm32mp13xx.h"
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_conf.h"
+#include <stdint.h>
 
 /**
  * @}

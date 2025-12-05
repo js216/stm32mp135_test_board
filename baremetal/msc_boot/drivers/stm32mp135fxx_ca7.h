@@ -9842,8 +9842,9 @@ typedef struct {
    FDCAN_TTIE_CSME_Msk /*!<Change of Synchronization Mode Interrupt Enable */
 #define FDCAN_TTIE_SOGE_Pos (3U)
 #define FDCAN_TTIE_SOGE_Msk (0x1UL << FDCAN_TTIE_SOGE_Pos) /*!< 0x00000008 */
-#define FDCAN_TTIE_SOGE     FDCAN_TTIE_SOGE_Msk /*!<Start of Gap Interrupt Enable \
-                                                 */
+#define FDCAN_TTIE_SOGE                                                        \
+   FDCAN_TTIE_SOGE_Msk /*!<Start of Gap Interrupt Enable                       \
+                        */
 #define FDCAN_TTIE_RTMIE_Pos (4U)
 #define FDCAN_TTIE_RTMIE_Msk                                                   \
    (0x1UL << FDCAN_TTIE_RTMIE_Pos) /*!< 0x00000010                             \
@@ -9932,10 +9933,11 @@ typedef struct {
    FDCAN_TTILS_CSMS_Msk /*!<Change of Synchronization Mode Interrupt Line */
 #define FDCAN_TTILS_SOGS_Pos (3U)
 #define FDCAN_TTILS_SOGS_Msk                                                   \
-   (0x1UL << FDCAN_TTILS_SOGS_Pos)            /*!< 0x00000008                  \
-                                               */
-#define FDCAN_TTILS_SOGS FDCAN_TTILS_SOGS_Msk /*!<Start of Gap Interrupt Line  \
-                                               */
+   (0x1UL << FDCAN_TTILS_SOGS_Pos) /*!< 0x00000008                             \
+                                    */
+#define FDCAN_TTILS_SOGS                                                       \
+   FDCAN_TTILS_SOGS_Msk /*!<Start of Gap Interrupt Line                        \
+                         */
 #define FDCAN_TTILS_RTMIS_Pos (4U)
 #define FDCAN_TTILS_RTMIS_Msk                                                  \
    (0x1UL << FDCAN_TTILS_RTMIS_Pos) /*!< 0x00000010 */
@@ -10009,8 +10011,9 @@ typedef struct {
    FDCAN_TTILS_IWTS_Msk /*!<Initialization Watch Trigger Interrupt Line */
 #define FDCAN_TTILS_WTS_Pos (16U)
 #define FDCAN_TTILS_WTS_Msk (0x1UL << FDCAN_TTILS_WTS_Pos) /*!< 0x00010000 */
-#define FDCAN_TTILS_WTS     FDCAN_TTILS_WTS_Msk /*!<Watch Trigger Interrupt Line \
-                                                 */
+#define FDCAN_TTILS_WTS                                                        \
+   FDCAN_TTILS_WTS_Msk /*!<Watch Trigger Interrupt Line                        \
+                        */
 #define FDCAN_TTILS_AWS_Pos (17U)
 #define FDCAN_TTILS_AWS_Msk (0x1UL << FDCAN_TTILS_AWS_Pos) /*!< 0x00020000 */
 #define FDCAN_TTILS_AWS                                                        \
@@ -51003,9 +51006,10 @@ typedef struct {
                            */
 #define SPDIFRX_IMR_SYNCDIE_Pos (5U)
 #define SPDIFRX_IMR_SYNCDIE_Msk                                                \
-   (0x1UL << SPDIFRX_IMR_SYNCDIE_Pos)               /*!< 0x00000020 */
-#define SPDIFRX_IMR_SYNCDIE SPDIFRX_IMR_SYNCDIE_Msk /*!<Synchronization Done   \
-                                                     */
+   (0x1UL << SPDIFRX_IMR_SYNCDIE_Pos) /*!< 0x00000020 */
+#define SPDIFRX_IMR_SYNCDIE                                                    \
+   SPDIFRX_IMR_SYNCDIE_Msk /*!<Synchronization Done                            \
+                            */
 #define SPDIFRX_IMR_IFEIE_Pos (6U)
 #define SPDIFRX_IMR_IFEIE_Msk                                                  \
    (0x1UL << SPDIFRX_IMR_IFEIE_Pos) /*!< 0x00000040 */
@@ -51016,8 +51020,9 @@ typedef struct {
  * *******************/
 #define SPDIFRX_SR_RXNE_Pos (0U)
 #define SPDIFRX_SR_RXNE_Msk (0x1UL << SPDIFRX_SR_RXNE_Pos) /*!< 0x00000001 */
-#define SPDIFRX_SR_RXNE     SPDIFRX_SR_RXNE_Msk /*!<Read data register not empty \
-                                                 */
+#define SPDIFRX_SR_RXNE                                                        \
+   SPDIFRX_SR_RXNE_Msk /*!<Read data register not empty                        \
+                        */
 #define SPDIFRX_SR_CSRNE_Pos (1U)
 #define SPDIFRX_SR_CSRNE_Msk                                                   \
    (0x1UL << SPDIFRX_SR_CSRNE_Pos) /*!< 0x00000002                             \
@@ -51032,8 +51037,9 @@ typedef struct {
 #define SPDIFRX_SR_OVR      SPDIFRX_SR_OVR_Msk            /*!<Overrun error */
 #define SPDIFRX_SR_SBD_Pos  (4U)
 #define SPDIFRX_SR_SBD_Msk  (0x1UL << SPDIFRX_SR_SBD_Pos) /*!< 0x00000010 */
-#define SPDIFRX_SR_SBD      SPDIFRX_SR_SBD_Msk /*!<Synchronization Block Detected \
-                                                */
+#define SPDIFRX_SR_SBD                                                         \
+   SPDIFRX_SR_SBD_Msk /*!<Synchronization Block Detected                       \
+                       */
 #define SPDIFRX_SR_SYNCD_Pos (5U)
 #define SPDIFRX_SR_SYNCD_Msk                                                   \
    (0x1UL << SPDIFRX_SR_SYNCD_Pos)                 /*!< 0x00000020             \
@@ -51448,8 +51454,9 @@ typedef struct {
    SAI_xIMR_WCKCFGIE_Msk /*!<Wrong Clock Configuration interrupt enable */
 #define SAI_xIMR_FREQIE_Pos (3U)
 #define SAI_xIMR_FREQIE_Msk (0x1UL << SAI_xIMR_FREQIE_Pos) /*!< 0x00000008 */
-#define SAI_xIMR_FREQIE     SAI_xIMR_FREQIE_Msk /*!<FIFO request interrupt enable \
-                                                 */
+#define SAI_xIMR_FREQIE                                                        \
+   SAI_xIMR_FREQIE_Msk /*!<FIFO request interrupt enable                       \
+                        */
 #define SAI_xIMR_CNRDYIE_Pos (4U)
 #define SAI_xIMR_CNRDYIE_Msk                                                   \
    (0x1UL << SAI_xIMR_CNRDYIE_Pos) /*!< 0x00000010                             \
@@ -51510,14 +51517,16 @@ typedef struct {
 /******************  Bit definition for SAI_xCLRFR register  ******************/
 #define SAI_xCLRFR_COVRUDR_Pos (0U)
 #define SAI_xCLRFR_COVRUDR_Msk                                                 \
-   (0x1UL << SAI_xCLRFR_COVRUDR_Pos)              /*!< 0x00000001 */
-#define SAI_xCLRFR_COVRUDR SAI_xCLRFR_COVRUDR_Msk /*!<Clear Overrun underrun   \
-                                                   */
+   (0x1UL << SAI_xCLRFR_COVRUDR_Pos) /*!< 0x00000001 */
+#define SAI_xCLRFR_COVRUDR                                                     \
+   SAI_xCLRFR_COVRUDR_Msk /*!<Clear Overrun underrun                           \
+                           */
 #define SAI_xCLRFR_CMUTEDET_Pos (1U)
 #define SAI_xCLRFR_CMUTEDET_Msk                                                \
-   (0x1UL << SAI_xCLRFR_CMUTEDET_Pos)               /*!< 0x00000002 */
-#define SAI_xCLRFR_CMUTEDET SAI_xCLRFR_CMUTEDET_Msk /*!<Clear Mute detection   \
-                                                     */
+   (0x1UL << SAI_xCLRFR_CMUTEDET_Pos) /*!< 0x00000002 */
+#define SAI_xCLRFR_CMUTEDET                                                    \
+   SAI_xCLRFR_CMUTEDET_Msk /*!<Clear Mute detection                            \
+                            */
 #define SAI_xCLRFR_CWCKCFG_Pos (2U)
 #define SAI_xCLRFR_CWCKCFG_Msk                                                 \
    (0x1UL << SAI_xCLRFR_CWCKCFG_Pos) /*!< 0x00000004 */
@@ -52019,10 +52028,11 @@ typedef struct {
 #define SDMMC_CMD_BOOTMODE   SDMMC_CMD_BOOTMODE_Msk /*!<Boot mode */
 #define SDMMC_CMD_BOOTEN_Pos (15U)
 #define SDMMC_CMD_BOOTEN_Msk                                                   \
-   (0x1UL << SDMMC_CMD_BOOTEN_Pos)            /*!< 0x00008000                  \
-                                               */
-#define SDMMC_CMD_BOOTEN SDMMC_CMD_BOOTEN_Msk /*!<Enable Boot mode procedure   \
-                                               */
+   (0x1UL << SDMMC_CMD_BOOTEN_Pos) /*!< 0x00008000                             \
+                                    */
+#define SDMMC_CMD_BOOTEN                                                       \
+   SDMMC_CMD_BOOTEN_Msk /*!<Enable Boot mode procedure                         \
+                         */
 #define SDMMC_CMD_CMDSUSPEND_Pos (16U)
 #define SDMMC_CMD_CMDSUSPEND_Msk                                               \
    (0x1UL << SDMMC_CMD_CMDSUSPEND_Pos) /*!< 0x00010000 */
@@ -52129,9 +52139,10 @@ typedef struct {
 #define SDMMC_DCTRL_RWMOD      SDMMC_DCTRL_RWMOD_Msk /*!<Read wait mode */
 #define SDMMC_DCTRL_SDIOEN_Pos (11U)
 #define SDMMC_DCTRL_SDIOEN_Msk                                                 \
-   (0x1UL << SDMMC_DCTRL_SDIOEN_Pos)              /*!< 0x00000800 */
-#define SDMMC_DCTRL_SDIOEN SDMMC_DCTRL_SDIOEN_Msk /*!<SD I/O enable functions  \
-                                                   */
+   (0x1UL << SDMMC_DCTRL_SDIOEN_Pos) /*!< 0x00000800 */
+#define SDMMC_DCTRL_SDIOEN                                                     \
+   SDMMC_DCTRL_SDIOEN_Msk /*!<SD I/O enable functions                          \
+                           */
 #define SDMMC_DCTRL_BOOTACKEN_Pos (12U)
 #define SDMMC_DCTRL_BOOTACKEN_Msk                                              \
    (0x1UL << SDMMC_DCTRL_BOOTACKEN_Pos) /*!< 0x00001000 */

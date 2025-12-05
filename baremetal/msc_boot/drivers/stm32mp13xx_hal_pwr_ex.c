@@ -22,6 +22,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal.h"
+#include <stdint.h>
 
 /** @addtogroup STM32MP13xx_HAL_Driver
  * @{

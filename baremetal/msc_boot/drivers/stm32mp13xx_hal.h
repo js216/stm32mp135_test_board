@@ -27,6 +27,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal_conf.h"
+#include <stdint.h>
 
 /** @addtogroup STM32MP13xx_HAL_Driver
  * @{

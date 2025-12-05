@@ -387,6 +387,8 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_i2c.h"
+#include <stdint.h>
 
 /** @addtogroup STM32MP13xx_HAL_Driver
  * @{

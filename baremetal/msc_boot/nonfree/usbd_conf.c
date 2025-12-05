@@ -28,6 +28,7 @@
 
 #include "stm32mp13xx_hal_def.h"
 #include "stm32mp13xx_hal_pcd.h"
+#include "stm32mp13xx_hal_rcc_ex.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/

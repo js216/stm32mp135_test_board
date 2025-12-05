@@ -26,6 +26,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_ll_sdmmc.h"
+#include <stdint.h>
 #if defined(DLYB_SDMMC1) || defined(DLYB_SDMMC2) || defined(DLYB_SDMMC3)
 #include "stm32mp13xx_ll_delayblock.h"
 #endif /* (DLYB_SDMMC1) || (DLYB_SDMMC2) */
@@ -337,8 +338,9 @@ typedef void (*pSD_TransceiverCallbackTypeDef)(FlagStatus status);
                               */
 #define HAL_SD_ERROR_CMD_RSP_TIMEOUT                                           \
    SDMMC_ERROR_CMD_RSP_TIMEOUT /*!< Command response timeout */
-#define HAL_SD_ERROR_DATA_TIMEOUT SDMMC_ERROR_DATA_TIMEOUT /*!< Data timeout   \
-                                                            */
+#define HAL_SD_ERROR_DATA_TIMEOUT                                              \
+   SDMMC_ERROR_DATA_TIMEOUT /*!< Data timeout                                  \
+                             */
 #define HAL_SD_ERROR_TX_UNDERRUN                                               \
    SDMMC_ERROR_TX_UNDERRUN /*!< Transmit FIFO underrun */
 #define HAL_SD_ERROR_RX_OVERRUN                                                \

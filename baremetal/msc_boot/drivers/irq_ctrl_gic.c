@@ -27,6 +27,7 @@
 #include "stm32mp13xx_hal.h"
 
 #include "irq_ctrl.h"
+#include <stdint.h>
 
 #if defined(__GIC_PRESENT) && (__GIC_PRESENT == 1U)
 

@@ -108,6 +108,7 @@
 // Descriptors should place all memory in domain 0
 
 #include "stm32mp13xx.h"
+#include <stdint.h>
 
 //--------------------- TTB sizes  -------------------
 #define TTB_L1_SIZE    0x4000

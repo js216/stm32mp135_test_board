@@ -7,12 +7,23 @@ LINKSCR    = src/stm32mp13xx_a7_sysram.ld
 SRC := $(wildcard src/*.c drivers/*.c nonfree/*.c)
 OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(SRC))
 
+CPPFLAGS = \
+	   -Idrivers -Inonfree -Isrc \
+	   -DHAL_DDR_MODULE_ENABLED \
+	   -DCORE_CA7 \
+	   -DDDR_TYPE_DDR3_4Gb \
+	   -DSTM32MP1 \
+	   -DSTM32MP135Fxx \
+	   -DUSE_FULL_LL_DRIVER \
+	   -DHAL_DMA_MODULE_ENABLED \
+	   -DHAL_GPIO_MODULE_ENABLED \
+	   -DHAL_I2C_MODULE_ENABLED \
+	   -DHAL_RCC_MODULE_ENABLED \
+	   -DHAL_SD_MODULE_ENABLED \
+	   -DHAL_UART_MODULE_ENABLED \
+	   -DHAL_PCD_MODULE_ENABLED \
+
 CFLAGS = \
-	-DCORE_CA7 \
-	-DDDR_TYPE_DDR3_4Gb \
-	-DSTM32MP1 -DSTM32MP135Fxx \
-	-DUSE_FULL_LL_DRIVER \
-	-Idrivers -Inonfree -Isrc \
 	-g2 -O3 \
 	-mcpu=cortex-a7 -march=armv7ve \
 	-mfpu=neon-vfpv4 -mfloat-abi=hard -mlittle-endian \
@@ -35,7 +46,7 @@ all: $(BINARYNAME).stm32
 
 $(OBJDIR)/%.o: %.c
 	mkdir -p $(dir $@)
-	arm-none-eabi-gcc -c $(CFLAGS) $< -o $@
+	arm-none-eabi-gcc -c $(CPPFLAGS) $(CFLAGS) $< -o $@
 
 $(BINARYNAME).elf: $(OBJ) $(LINKSCR)
 	arm-none-eabi-gcc $(LFLAGS) -o $@ $(OBJ)
