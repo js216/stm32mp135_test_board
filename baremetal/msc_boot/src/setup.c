@@ -1,0 +1,487 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+/**
+ * @file setup.c
+ * @brief Driver and board low-level setup
+ * @author Jakob Kastelic
+ * @copyright 2025 Stanford Research Systems, Inc.
+ */
+
+#include "setup.h"
+#include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_etzpc.h"
+#include "usbd_conf.h"
+#include <stdio.h>
+#include "usbd_core.h"
+#include "usbd_msc.h"
+#include "usbd_desc.h"
+#include "usbd_msc_storage.h"
+
+// global variables
+UART_HandleTypeDef huart4;
+SD_HandleTypeDef SDHandle;
+USBD_HandleTypeDef hUsbDeviceFS;
+USBD_HandleTypeDef USBD_Device;
+
+void Undef_Handler (void) {while(1);};
+void SVC_Handler   (void) {while(1);};
+void PAbt_Handler  (void) {while(1);};
+void DAbt_Handler  (void) {while(1);};
+void Rsvd_Handler  (void) {while(1);};
+void FIQ_Handler   (void) {while(1);};
+
+void error_msg(const char *msg)
+{
+   while (1) {
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+      HAL_Delay(25);
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+      HAL_Delay(25);
+
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+      HAL_Delay(100);
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+      HAL_Delay(100);
+
+      printf("ERROR: %s\r\n", msg);
+   }
+}
+
+void Error_Handler(void)
+{
+   error_msg("Error_Handler");
+   HAL_Delay(1000);
+}
+
+void assert_failed(uint8_t* file, uint32_t line)
+{
+   printf("File %s line %d: assert failed.\r\n", file, line);
+
+   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+   HAL_Delay(50);
+}
+
+
+void SystemClock_Config(void)
+{
+#if !defined(USE_DDR)
+   HAL_RCC_DeInit();
+   RCC_ClkInitTypeDef RCC_ClkInitStructure;
+   RCC_OscInitTypeDef RCC_OscInitStructure;
+
+   /* Enable all available oscillators*/
+   RCC_OscInitStructure.OscillatorType = (RCC_OSCILLATORTYPE_HSI |
+         RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_CSI |
+         RCC_OSCILLATORTYPE_LSI);
+
+   RCC_OscInitStructure.HSIState = RCC_HSI_ON;
+   RCC_OscInitStructure.HSEState = RCC_HSE_ON;
+   RCC_OscInitStructure.LSEState = RCC_LSE_OFF;
+   RCC_OscInitStructure.LSIState = RCC_LSI_ON;
+   RCC_OscInitStructure.CSIState = RCC_CSI_ON;
+
+   RCC_OscInitStructure.HSICalibrationValue = 0x00; //Default reset value
+   RCC_OscInitStructure.CSICalibrationValue = 0x10; //Default reset value
+   RCC_OscInitStructure.HSIDivValue = RCC_HSI_DIV1; //Default value
+
+   /* PLL configuration */
+   RCC_OscInitStructure.PLL.PLLState = RCC_PLL_ON;
+   RCC_OscInitStructure.PLL.PLLSource = RCC_PLL12SOURCE_HSE;
+   RCC_OscInitStructure.PLL.PLLM = 3;
+   RCC_OscInitStructure.PLL.PLLN = 81;
+   RCC_OscInitStructure.PLL.PLLP = 1;
+   RCC_OscInitStructure.PLL.PLLQ = 2;
+   RCC_OscInitStructure.PLL.PLLR = 2;
+   RCC_OscInitStructure.PLL.PLLFRACV = 0x800;
+   RCC_OscInitStructure.PLL.PLLMODE = RCC_PLL_FRACTIONAL;
+
+   RCC_OscInitStructure.PLL2.PLLState = RCC_PLL_ON;
+   RCC_OscInitStructure.PLL2.PLLSource = RCC_PLL12SOURCE_HSE;
+   RCC_OscInitStructure.PLL2.PLLM = 3;
+   RCC_OscInitStructure.PLL2.PLLN = 66;
+   RCC_OscInitStructure.PLL2.PLLP = 2;
+   RCC_OscInitStructure.PLL2.PLLQ = 2;
+   RCC_OscInitStructure.PLL2.PLLR = 1;
+   RCC_OscInitStructure.PLL2.PLLFRACV = 0x1400;
+   RCC_OscInitStructure.PLL2.PLLMODE = RCC_PLL_FRACTIONAL;
+
+   RCC_OscInitStructure.PLL3.PLLState = RCC_PLL_ON;
+   RCC_OscInitStructure.PLL3.PLLSource = RCC_PLL3SOURCE_HSE;
+   RCC_OscInitStructure.PLL3.PLLM = 2;
+   RCC_OscInitStructure.PLL3.PLLN = 34;
+   RCC_OscInitStructure.PLL3.PLLP = 2;
+   RCC_OscInitStructure.PLL3.PLLQ = 17;
+   RCC_OscInitStructure.PLL3.PLLR = 2;
+   RCC_OscInitStructure.PLL3.PLLRGE = RCC_PLL3IFRANGE_1;
+   RCC_OscInitStructure.PLL3.PLLFRACV = 0x1a04;
+   RCC_OscInitStructure.PLL3.PLLMODE = RCC_PLL_FRACTIONAL;
+
+   RCC_OscInitStructure.PLL4.PLLState = RCC_PLL_ON;
+   RCC_OscInitStructure.PLL4.PLLSource = RCC_PLL4SOURCE_HSE;
+   RCC_OscInitStructure.PLL4.PLLM = 2;
+   RCC_OscInitStructure.PLL4.PLLN = 40;
+   RCC_OscInitStructure.PLL4.PLLP = 10;
+   RCC_OscInitStructure.PLL4.PLLQ = 10;
+   RCC_OscInitStructure.PLL4.PLLR = 10;
+   RCC_OscInitStructure.PLL4.PLLRGE = RCC_PLL4IFRANGE_1;
+   RCC_OscInitStructure.PLL4.PLLFRACV = 0;
+   RCC_OscInitStructure.PLL4.PLLMODE = RCC_PLL_INTEGER;
+
+   /* Enable access to RTC and backup registers */
+   SET_BIT(PWR->CR1, PWR_CR1_DBP);
+
+   if (HAL_RCC_OscConfig(&RCC_OscInitStructure) != HAL_OK) {
+      error_msg("HAL RCC Osc configuration error");
+   }
+
+   /* Select PLLx as MPU, AXI and MCU clock sources */
+   RCC_ClkInitStructure.ClockType = (RCC_CLOCKTYPE_MPU   | RCC_CLOCKTYPE_ACLK  |
+         RCC_CLOCKTYPE_HCLK  | RCC_CLOCKTYPE_PCLK4 |
+         RCC_CLOCKTYPE_PCLK5 | RCC_CLOCKTYPE_PCLK1 |
+         RCC_CLOCKTYPE_PCLK6 |
+         RCC_CLOCKTYPE_PCLK2 | RCC_CLOCKTYPE_PCLK3);
+
+   RCC_ClkInitStructure.MPUInit.MPU_Clock = RCC_MPUSOURCE_PLL1;
+   RCC_ClkInitStructure.MPUInit.MPU_Div = RCC_MPU_DIV2;
+   RCC_ClkInitStructure.AXISSInit.AXI_Clock = RCC_AXISSOURCE_PLL2;
+   RCC_ClkInitStructure.AXISSInit.AXI_Div = RCC_AXI_DIV1;
+   RCC_ClkInitStructure.MLAHBInit.MLAHB_Clock = RCC_MLAHBSSOURCE_PLL3;
+   RCC_ClkInitStructure.MLAHBInit.MLAHB_Div = RCC_MLAHB_DIV1;
+   RCC_ClkInitStructure.APB1_Div = RCC_APB1_DIV2;
+   RCC_ClkInitStructure.APB2_Div = RCC_APB2_DIV2;
+   RCC_ClkInitStructure.APB3_Div = RCC_APB3_DIV2;
+   RCC_ClkInitStructure.APB4_Div = RCC_APB4_DIV2;
+   RCC_ClkInitStructure.APB5_Div = RCC_APB5_DIV4;
+   RCC_ClkInitStructure.APB6_Div = RCC_APB6_DIV2;
+
+   if (HAL_RCC_ClockConfig(&RCC_ClkInitStructure) != HAL_OK) {
+      error_msg("HAL RCC Clk configuration error");
+   }
+
+   /*
+Note : The activation of the I/O Compensation Cell is recommended with communication  interfaces
+(GPIO, SPI, FMC, QSPI ...)  when  operating at  high frequencies(please refer to product datasheet)
+The I/O Compensation Cell activation  procedure requires :
+- The activation of the CSI clock
+- The activation of the SYSCFG clock
+- Enabling the I/O Compensation Cell : setting bit[0] of register SYSCFG_CCCSR
+
+To do this please uncomment the following code
+*/
+
+   /*
+      __HAL_RCC_CSI_ENABLE() ;
+
+      __HAL_RCC_SYSCFG_CLK_ENABLE() ;
+
+      HAL_EnableCompensationCell();
+      */
+#endif
+}
+
+
+void PeriphCommonClock_Config(void)
+{
+   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_CKPER;
+   PeriphClkInit.CkperClockSelection = RCC_CKPERCLKSOURCE_HSE;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("CKPER");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ETH1;
+   PeriphClkInit.Eth1ClockSelection = RCC_ETH1CLKSOURCE_PLL4;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("ETH1");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ETH2;
+   PeriphClkInit.Eth2ClockSelection = RCC_ETH2CLKSOURCE_PLL4;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("ETH2");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_SDMMC1;
+   PeriphClkInit.Sdmmc1ClockSelection = RCC_SDMMC1CLKSOURCE_PLL4;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("SDMMC1");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_SDMMC2;
+   PeriphClkInit.Sdmmc2ClockSelection = RCC_SDMMC2CLKSOURCE_PLL4;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("SDMMC2");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_STGEN;
+   PeriphClkInit.StgenClockSelection = RCC_STGENCLKSOURCE_HSE;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("STGEN");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C4;
+   PeriphClkInit.I2c4ClockSelection = RCC_I2C4CLKSOURCE_HSI;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("I2C4");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC2;
+   PeriphClkInit.Adc2ClockSelection = RCC_ADC2CLKSOURCE_PER;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("ADC2");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C12;
+   PeriphClkInit.I2c12ClockSelection = RCC_I2C12CLKSOURCE_HSI;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("I2C12");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2;
+   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_HSI;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("USART2");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_UART4;
+   PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_HSI;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("UART4");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_SAES;
+   PeriphClkInit.SaesClockSelection = RCC_SAESCLKSOURCE_ACLK;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("SAES");
+   }
+
+   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_LPTIM3;
+   PeriphClkInit.Lptim3ClockSelection = RCC_LPTIM3CLKSOURCE_PCLK3;
+   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+   {
+      error_msg("LPTIM3");
+   }
+}
+
+
+void setup_ddr(void)
+{
+   // MCE and TZC config
+   __HAL_RCC_MCE_CLK_ENABLE();
+   __HAL_RCC_TZC_CLK_ENABLE();
+
+   // configure TZC to allow DDR Region0 R/W non secure for all IDs
+   TZC->GATE_KEEPER     = 0;
+   TZC->REG_ID_ACCESSO  = 0xFFFFFFFF;  // Allow DDR Region0 R/W non secure for all IDs
+   TZC->REG_ATTRIBUTESO = 0xC0000001;
+   TZC->GATE_KEEPER     |= 1;          // Enable the access in secure Mode  // filter 0 request close
+
+   // enable ETZPC & BACKUP SRAM for security
+   __HAL_RCC_ETZPC_CLK_ENABLE();
+   __HAL_RCC_BKPSRAM_CLK_ENABLE();
+
+   // unlock debugger
+   BSEC->BSEC_DENABLE = 0x47f;
+
+   // enable clock debug CK_DBG
+   RCC->DBGCFGR |= RCC_DBGCFGR_DBGCKEN;
+
+   // init DDR
+   static DDR_InitTypeDef hddr;
+   hddr.wakeup_from_standby = false;
+   hddr.self_refresh = false;
+   hddr.zdata = 0;
+   hddr.clear_bkp = false;
+
+   if (HAL_DDR_Init(&hddr) != HAL_OK)
+      error_msg("DDR Init");
+}
+
+
+int HAL_DDR_MspInit(ddr_type type)
+{
+}
+
+
+void HAL_UART_MspInit(UART_HandleTypeDef* huart)
+{
+   GPIO_InitTypeDef GPIO_InitStruct;
+   if (huart->Instance==UART4) {
+      /* Peripheral clock enable */
+      __HAL_RCC_UART4_CLK_ENABLE();
+      __HAL_RCC_UART4_FORCE_RESET();
+      __HAL_RCC_UART4_RELEASE_RESET();
+
+      __HAL_RCC_GPIOD_CLK_ENABLE();
+
+      /**UART4 GPIO Configuration
+        PD8     ------> UART4_TX
+        PD6     ------> UART4_RX
+        */
+      GPIO_InitStruct.Pin = GPIO_PIN_6;
+      GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+      GPIO_InitStruct.Pull = GPIO_PULLUP;
+      GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+      GPIO_InitStruct.Alternate = GPIO_AF8_UART4;
+      HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+      GPIO_InitStruct.Pin = GPIO_PIN_8;
+      GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+      GPIO_InitStruct.Pull = GPIO_PULLUP;
+      GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+      GPIO_InitStruct.Alternate = GPIO_AF8_UART4;
+      HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+   }
+}
+
+
+void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
+{
+   if (huart->Instance==UART4) {
+      __HAL_RCC_UART4_FORCE_RESET();
+      __HAL_RCC_UART4_RELEASE_RESET();
+      __HAL_RCC_UART4_CLK_DISABLE();
+
+      /**UART4 GPIO Configuration
+        PD8     ------> UART4_TX
+        PD6     ------> UART4_RX
+        */
+      HAL_GPIO_DeInit(GPIOD, GPIO_PIN_6);
+      HAL_GPIO_DeInit(GPIOD, GPIO_PIN_8);
+   }
+}
+
+
+void HAL_SD_MspInit(SD_HandleTypeDef *hsd)
+{
+   /* Enable and reset SDMMC Periheral Clock */
+   __HAL_RCC_SDMMC1_CLK_ENABLE();
+   __HAL_RCC_SDMMC1_FORCE_RESET();
+   __HAL_RCC_SDMMC1_RELEASE_RESET();
+
+   /* Enable GPIOs clock */
+   __HAL_RCC_GPIOC_CLK_ENABLE();
+   __HAL_RCC_GPIOD_CLK_ENABLE();
+
+   /* Common GPIO configuration */
+   GPIO_InitTypeDef GPIO_Init_Structure;
+   GPIO_Init_Structure.Mode      = GPIO_MODE_AF_PP;
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Speed     = GPIO_SPEED_FREQ_HIGH;
+
+   /* D0 D1 D2 D3 CK on PC8 PC9 PC10 PC11 PC12 - AF12 PULLUP */
+   GPIO_Init_Structure.Pull      = GPIO_PULLUP;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12;
+   HAL_GPIO_Init(GPIOC, &GPIO_Init_Structure);
+
+   /* CMD on PD2 - AF12 NOPULL since there's an external pullup */
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_2;
+   HAL_GPIO_Init(GPIOD, &GPIO_Init_Structure);
+}
+
+
+void MX_UART4_Init(void)
+{
+   huart4.Instance = UART4;
+   huart4.Init.BaudRate = 115200;
+   huart4.Init.WordLength = UART_WORDLENGTH_8B;
+   huart4.Init.StopBits = UART_STOPBITS_1;
+   huart4.Init.Parity = UART_PARITY_NONE;
+   huart4.Init.Mode = UART_MODE_TX_RX;
+   huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+   huart4.Init.OverSampling = UART_OVERSAMPLING_8;
+   huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+   huart4.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+   huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+
+   if (HAL_UART_Init(&huart4) != HAL_OK)
+   {
+      error_msg("UART4");
+   }
+   if (HAL_UARTEx_SetTxFifoThreshold(&huart4, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+   {
+      error_msg("FIFO TX Threshold");
+   }
+   if (HAL_UARTEx_SetRxFifoThreshold(&huart4, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+   {
+      error_msg("FIFO RX Threshold");
+   }
+   if (HAL_UARTEx_DisableFifoMode(&huart4) != HAL_OK)
+   {
+      error_msg("Disable FIFO");
+   }
+}
+
+
+int __io_putchar(int ch)
+{
+   HAL_UART_Transmit(&huart4, (uint8_t *)(&ch), 1, 0xFFFF);
+   return ch;
+}
+
+
+int __io_getchar (void)
+{
+   uint8_t ch = 0;
+   __HAL_UART_CLEAR_OREFLAG(&huart4);
+   HAL_UART_Receive(&huart4, (uint8_t *)&ch, 1, 0xFFFF);
+   HAL_UART_Transmit(&huart4, (uint8_t *)&ch, 1, 0xFFFF);
+   return ch;
+}
+
+
+SD_HandleTypeDef setup_sd(void)
+{
+   // unsecure SYSRAM so that SDMMC1 (which we configure as non-secure) can access it
+   LL_ETZPC_SetSecureSysRamSize(ETZPC, 0);
+
+   // unsecure SDMMC1
+   LL_ETZPC_Set_SDMMC1_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE);
+
+   // initialize SDMMC1
+   static SD_HandleTypeDef SDHandle;
+   SDHandle.Instance = SDMMC1;
+   HAL_SD_DeInit(&SDHandle);
+
+   // SDMMC IP clock xx MHz, SDCard clock xx MHz
+   SDHandle.Init.ClockEdge           = SDMMC_CLOCK_EDGE_RISING;
+   SDHandle.Init.ClockPowerSave      = SDMMC_CLOCK_POWER_SAVE_DISABLE;
+   SDHandle.Init.BusWide             = SDMMC_BUS_WIDE_4B;
+   SDHandle.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
+   SDHandle.Init.ClockDiv            = SDMMC_NSPEED_CLK_DIV;
+
+   if (HAL_SD_Init(&SDHandle) != HAL_OK) {
+      error_msg("HAL_SD_Init");
+   }
+
+   while (HAL_SD_GetCardState(&SDHandle) != HAL_SD_CARD_TRANSFER)
+      ;
+
+   return SDHandle;
+}
+
+void usb_init(void)
+{
+   USBD_Init(&USBD_Device, &MSC_Desc, 0);
+   USBD_RegisterClass(&USBD_Device, USBD_MSC_CLASS);
+   USBD_MSC_RegisterStorage(&USBD_Device, &USBD_MSC_fops);
+   USBD_Start(&USBD_Device);
+}
+
+// end file setup.c
