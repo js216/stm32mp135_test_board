@@ -469,8 +469,6 @@ SD_HandleTypeDef setup_sd(void)
 
 void usb_init(void)
 {
-   LL_ETZPC_Set_OTG_PeriphProtection(ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE); // TODO: is this needed?
-
    USBD_Init(&USBD_Device, &MSC_Desc, 0);
    USBD_RegisterClass(&USBD_Device, USBD_MSC_CLASS);
    USBD_MSC_RegisterStorage(&USBD_Device, &USBD_MSC_fops);

@@ -155,12 +155,23 @@ int8_t  STORAGE_IsWriteProtected(uint8_t lun)
 int8_t STORAGE_Read(uint8_t lun, uint8_t *buf,
                     uint32_t blk_addr, uint16_t blk_len)
 {
-    volatile uint8_t *vbuf = (volatile uint8_t *)buf;
-    volatile uint8_t *vdrive = &virtdrive[blk_addr * STORAGE_BLK_SIZ];
-    
-    for (uint16_t i = 0; i < (blk_len * STORAGE_BLK_SIZ); i++)
-        vbuf[i] = vdrive[i];
-    
+    const uint32_t *src =
+        (const uint32_t *)&virtdrive[blk_addr * STORAGE_BLK_SIZ];
+    uint8_t *dst = buf;
+
+    for (uint32_t blk = 0; blk < blk_len; blk++) {
+        for (int i = 0; i < STORAGE_BLK_SIZ; i += 4) {
+            uint32_t w = *src++; /* 32-bit aligned read */
+
+            dst[0] = (uint8_t)( w        & 0xff);
+            dst[1] = (uint8_t)((w >> 8)  & 0xff);
+            dst[2] = (uint8_t)((w >> 16) & 0xff);
+            dst[3] = (uint8_t)((w >> 24) & 0xff);
+
+            dst += 4;
+        }
+    }
+
     return USBD_OK;
 }
 
