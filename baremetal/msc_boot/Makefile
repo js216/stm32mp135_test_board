@@ -9,7 +9,7 @@ OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(SRC))
 
 CFLAGS = \
 	-DCORE_CA7 \
-	-DDR_TYPE_DDR3_4Gb \
+	-DDDR_TYPE_DDR3_4Gb \
 	-DSTM32MP1 -DSTM32MP135Fxx \
 	-DUSE_FULL_LL_DRIVER \
 	-Idrivers -Inonfree -Isrc \
@@ -55,8 +55,9 @@ format:
 
 tidy:
 	make clean
-	bear -- make -j$(shell nproc) $(TARGET)
-	run-clang-tidy -j$(shell nproc) -p . $(SRC)
+	mkdir -p build
+	bear --output build/compile_commands.json -- make -j$(shell nproc) $(TARGET)
+	run-clang-tidy -j$(shell nproc) -p build $(SRC)
 
 cppcheck:
 	cppcheck --enable=all --inconclusive --std=c++17 --force --quiet \
@@ -70,20 +71,15 @@ inclusions: $(INC_SRCS) scripts/inclusions.py
 
 # UART bootloader
 
-check-port:
-ifndef PORT
-	$(error PORT not set. Usage: make install PORT=COM1)
-endif
-
-term: check-port
+term:
 	python3 -m serial.tools.miniterm $(PORT) 115200
 
-install: $(BINARYNAME).stm32 check-port
+install: $(BINARYNAME).stm32
 	python3 scripts/uart_boot.py -c $(PORT) -f $<
 
 # General
 
-.PHONY: all clean install check-port term
+.PHONY: all clean install term
 
 clean:
 	rm -rf build
