@@ -49,8 +49,8 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_ll_delayblock.h"
+#include "stm32mp13xx_hal.h"
 #include <stdint.h>
 
 /** @addtogroup STM32MP13xx_LL_Driver

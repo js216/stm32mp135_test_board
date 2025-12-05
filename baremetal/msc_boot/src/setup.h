@@ -11,10 +11,10 @@
 #define SETUP_H
 
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_ddr.h"
 #include "stm32mp13xx_hal_pcd.h"
 #include "stm32mp13xx_hal_sd.h"
 #include "stm32mp13xx_hal_uart.h"
-#include "stm32mp13xx_hal_ddr.h"
 #include <string.h>
 
 // global variables

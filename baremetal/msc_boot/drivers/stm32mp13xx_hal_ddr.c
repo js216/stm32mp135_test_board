@@ -34,8 +34,8 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal_ddr.h"
-#include "stm32mp13xx_hal_rcc.h"
 #include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_rcc.h"
 #include <stdint.h>
 
 #ifdef HAL_DDR_MODULE_ENABLED

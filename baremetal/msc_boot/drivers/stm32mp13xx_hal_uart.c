@@ -166,8 +166,8 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_uart.h"
+#include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_rcc.h"
 #include <stdint.h>
 
