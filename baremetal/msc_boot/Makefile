@@ -1,68 +1,23 @@
 PORT = COM20
 
-BUILDDIR   = build
-BINARYNAME = $(BUILDDIR)/main
-OBJDIR     = $(BUILDDIR)/obj
-OBJECTS    = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(basename $(SOURCES))))
+BINARYNAME = build/main
+OBJDIR     = build/obj
 LINKSCR    = src/stm32mp13xx_a7_sysram.ld
 
-SOURCES = \
-	 src/main.c \
-	 src/setup.c \
-	 drivers/syscalls.c \
-	 drivers/mmu_stm32mp13xx.c \
-	 drivers/system_stm32mp13xx_A7.c \
-	 drivers/startup_stm32mp135fxx_ca7.c \
-	 drivers/irq_ctrl_gic.c \
-	 drivers/stm32mp13xx_hal.c \
-	 drivers/stm32mp13xx_hal_ddr.c \
-	 drivers/stm32mp13xx_hal_dma.c \
-	 drivers/stm32mp13xx_hal_dma_ex.c \
-	 drivers/stm32mp13xx_hal_gpio.c \
-	 drivers/stm32mp13xx_hal_i2c.c \
-	 drivers/stm32mp13xx_hal_pcd.c \
-	 drivers/stm32mp13xx_hal_pcd_ex.c \
-	 drivers/stm32mp13xx_hal_pwr.c \
-	 drivers/stm32mp13xx_hal_pwr_ex.c \
-	 drivers/stm32mp13xx_hal_rcc.c \
-	 drivers/stm32mp13xx_hal_rcc_ex.c \
-	 drivers/stm32mp13xx_hal_sd.c \
-	 drivers/stm32mp13xx_hal_sd_ex.c \
-	 drivers/stm32mp13xx_hal_uart.c \
-	 drivers/stm32mp13xx_hal_uart_ex.c \
-	 drivers/stm32mp13xx_ll_delayblock.c \
-	 drivers/stm32mp13xx_ll_sdmmc.c \
-	 drivers/stm32mp13xx_ll_usb.c \
-	 nonfree/usbd_core.c \
-	 nonfree/usbd_ctlreq.c \
-	 nonfree/usbd_ioreq.c \
-	 nonfree/usbd_msc.c \
-	 nonfree/usbd_msc_bot.c \
-	 nonfree/usbd_msc_data.c \
-	 nonfree/usbd_msc_scsi.c \
-	 nonfree/usbd_conf.c \
-	 nonfree/usbd_desc.c \
-	 nonfree/usbd_msc_storage.c \
-
-INCLUDES = \
-	 -Isrc \
-	 -Idrivers \
-	 -Inonfree \
+SRC := $(wildcard src/*.c drivers/*.c nonfree/*.c)
+OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(SRC))
 
 CFLAGS = \
-	 -g2 \
-	 -O3 \
-	 -fno-common \
-	 -DUSE_FULL_LL_DRIVER \
-	 -DSTM32MP135Fxx \
-	 -DSTM32MP1 \
-	 -DCORE_CA7 \
-	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
-	 $(INCLUDES) \
-	 -fdata-sections -ffunction-sections \
-	 -nostartfiles \
-	 -ffreestanding \
-	 -DDDR_TYPE_DDR3_4Gb \
+	-DCORE_CA7 \
+	-DDR_TYPE_DDR3_4Gb \
+	-DSTM32MP1 -DSTM32MP135Fxx \
+	-DUSE_FULL_LL_DRIVER \
+	-Idrivers -Inonfree -Isrc \
+	-g2 -O3 \
+	-mcpu=cortex-a7 -march=armv7ve \
+	-mfpu=neon-vfpv4 -mfloat-abi=hard -mlittle-endian \
+	-fdata-sections -ffunction-sections \
+	-ffreestanding -fno-common -nostartfiles
 
 LFLAGS = \
 	 -Wl,--gc-sections \
@@ -74,12 +29,46 @@ LFLAGS = \
 	 -ffreestanding \
 	 -Wl,--print-memory-usage \
 
-.PHONY: all clean install check-port term
+# Build recipes
 
 all: $(BINARYNAME).stm32
 
-clean:
-	rm -rf build
+$(OBJDIR)/%.o: %.c
+	mkdir -p $(dir $@)
+	arm-none-eabi-gcc -c $(CFLAGS) $< -o $@
+
+$(BINARYNAME).elf: $(OBJ) $(LINKSCR)
+	arm-none-eabi-gcc $(LFLAGS) -o $@ $(OBJ)
+
+$(BINARYNAME).bin: $(BINARYNAME).elf
+	arm-none-eabi-objcopy -O binary $< $@
+
+$(BINARYNAME).stm32: $(BINARYNAME).bin
+	python3 scripts/stm32_header.py -e $(BINARYNAME).elf -b $< -o $@ -t .RESET
+
+# Testing and linting
+
+check: format cppcheck tidy inclusions
+
+format:
+	clang-format --dry-run -Werror $(SRC)
+
+tidy:
+	make clean
+	bear -- make -j$(shell nproc) $(TARGET)
+	run-clang-tidy -j$(shell nproc) -p . $(SRC)
+
+cppcheck:
+	cppcheck --enable=all --inconclusive --std=c++17 --force --quiet \
+		--error-exitcode=1 --suppress=missingInclude src
+
+inclusions: $(INC_SRCS) scripts/inclusions.py
+	python3 scripts/inclusions.py $(SRC) $(HDRS) > build/incl.dot ; \
+	PYTHON_EXIT=$$? ; \
+	dot -Tpdf build/incl.dot -o build/incl.pdf ; \
+	exit $$PYTHON_EXIT
+
+# UART bootloader
 
 check-port:
 ifndef PORT
@@ -92,15 +81,9 @@ term: check-port
 install: $(BINARYNAME).stm32 check-port
 	python3 scripts/uart_boot.py -c $(PORT) -f $<
 
-$(OBJDIR)/%.o: %.c
-	mkdir -p $(dir $@)
-	arm-none-eabi-gcc -c $(CFLAGS) $< -o $@
+# General
 
-$(BINARYNAME).elf: $(OBJECTS) $(LINKSCR)
-	arm-none-eabi-gcc $(LFLAGS) -o $@ $(OBJECTS)
+.PHONY: all clean install check-port term
 
-$(BINARYNAME).bin: $(BINARYNAME).elf
-	arm-none-eabi-objcopy -O binary $< $@
-
-$(BINARYNAME).stm32: $(BINARYNAME).bin
-	python3 scripts/stm32_header.py -e $(BINARYNAME).elf -b $< -o $@ -t .RESET
+clean:
+	rm -rf build

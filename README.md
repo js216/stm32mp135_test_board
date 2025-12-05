@@ -22,7 +22,9 @@ computers available. But it does generate a nice overview of the pin assigment.
 ### Bare-metal projects
 
 Under `baremetal` you can find a sequence of simple projects for getting started
-with debugging this board:
+with debugging this board. All projects are completely independent of each
+other, and each directory contains all drivers and other files needed to build
+the firmware image my just calling `make`.
 
 - `blink` will blink the red LED on the board, thus proving that the chip works
   and that we have a way to program it (namely the `uart_boot.py` script,
@@ -34,8 +36,11 @@ with debugging this board:
 
 - `ddr_test2`: A simplified version of the STM32DDRFW-UTIL tool.
 
-- `sd_test`: Initialize SD card, fill it with pseudorandom bits, and
-  confirm that reading from the card returns the same bit sequence.
+- `sd_test`: Initialize SD card, and read out the first few bytes.
+
+- `msc_boot`: Enumerate as USB MSC and present the SD card to the host computer
+  as a flash drive; copy a disk image from USB to the SD card, then copy it from
+  SD card to DDR, and execute it.
 
 ### Author
 
