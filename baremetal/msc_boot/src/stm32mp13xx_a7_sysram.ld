@@ -7,7 +7,7 @@
  * @copyright 2021 STMicroelectronics
  */
 
-ENTRY(Reset_Handler)
+ENTRY(reset_handler)
 
 _Min_Heap_Size = 0x200;     /* required amount of heap  */
 _Min_Stack_Size = 0x400;    /* required amount of stack */

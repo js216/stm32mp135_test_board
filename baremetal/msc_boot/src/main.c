@@ -8,12 +8,14 @@
  */
 
 #include "setup.h"
+#include "stm32mp135fxx_ca7.h"
 #include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_hal_etzpc.h"
+#include "stm32mp13xx_hal_def.h"
 #include "stm32mp13xx_hal_gpio.h"
 #include "stm32mp13xx_hal_rcc.h"
-#include <ctype.h>
-#include <stdio.h>
+#include "stm32mp13xx_hal_sd.h"
+#include <stdint.h>
+#include "printf.h"
 
 void print_ddr(const int num_words)
 {
@@ -23,10 +25,10 @@ void print_ddr(const int num_words)
 
       // print in hex
       for (int j = 0; j < 4; j++) {
-         uint32_t *p  = (uint32_t *)(DRAM_MEM_BASE + 4 * (i + j));
-         const int i0 = *p;
+         uint32_t *p       = (uint32_t *)(DRAM_MEM_BASE + (4 * (i + j)));
+         const uint32_t i0 = *p;
          for (int k = 0; k < 4; k++) {
-            const char c = (i0 & (0xff << k * 8)) >> k * 8;
+            const char c = (i0 & (0XFFU << k * 8U)) >> k * 8U;
             printf("%02x ", c);
          }
          printf(" ");
@@ -34,11 +36,11 @@ void print_ddr(const int num_words)
 
       // print as ASCII
       for (int j = 0; j < 4; j++) {
-         uint32_t *p  = (uint32_t *)(DRAM_MEM_BASE + 4 * (i + j));
-         const int i0 = *p;
+         uint32_t *p       = (uint32_t *)(DRAM_MEM_BASE + (4 * (i + j)));
+         const uint32_t i0 = *p;
          for (int k = 0; k < 4; k++) {
-            const char c = (i0 & (0xff << k * 8)) >> k * 8;
-            if (isprint(c))
+            const char c = (i0 & (0XFFU << k * 8U)) >> k * 8U;
+            if (c >= 0x20 && c <= 0x7e)
                printf("%c", c);
             else
                printf(".");
@@ -52,16 +54,16 @@ void print_ddr(const int num_words)
 void fill_dram(const int num_bytes)
 {
    uint32_t *p = (uint32_t *)DRAM_MEM_BASE;
-   int i       = 0;
+   uint32_t i  = 0;
 
    // write 4 bytes per word
    while (i < num_bytes) {
-      uint8_t b0 = (uint8_t)(i & 0xFF);
-      uint8_t b1 = (uint8_t)((i + 1) & 0xFF);
-      uint8_t b2 = (uint8_t)((i + 2) & 0xFF);
-      uint8_t b3 = (uint8_t)((i + 3) & 0xFF);
+      uint32_t b0 = (uint8_t)(i & 0xFFU);
+      uint32_t b1 = (uint8_t)((i + 1) & 0xFFU);
+      uint32_t b2 = (uint8_t)((i + 2) & 0xFFU);
+      uint32_t b3 = (uint8_t)((i + 3) & 0xFFU);
 
-      uint32_t word = (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+      uint32_t word = (b3 << 24U) | (b2 << 16U) | (b1 << 8U) | b0;
       *p++          = word;
 
       i += 4;
@@ -76,7 +78,7 @@ void read_sd_blocking(void)
 
    static uint8_t block[BLOCKSIZE]; // static array for one block
 
-   if (HAL_SD_ReadBlocks(&SDHandle, block, app_offset, num_blocks,
+   if (HAL_SD_ReadBlocks(&sd_handle, block, app_offset, num_blocks,
                          read_timeout) != HAL_OK) {
       printf("Error in HAL_SD_ReadBlocks()\r\n");
       Error_Handler();
@@ -85,9 +87,10 @@ void read_sd_blocking(void)
    // Copy to DRAM in 32-bit words
    // (Copying byte by byte cause weird data corruption)
    uint32_t *p = (uint32_t *)DRAM_MEM_BASE;
-   for (int i = 0; i < 512; i += 4) {
-      uint32_t word = (block[i + 3] << 24) | (block[i + 2] << 16) |
-                      (block[i + 1] << 8) | block[i];
+   for (unsigned int i = 0; i < 512; i += 4) {
+      uint32_t word = ((uint32_t)block[i + 3U] << 24U) |
+                      ((uint32_t)block[i + 2U] << 16U) |
+                      ((uint32_t)block[i + 1U] << 8U) | (uint32_t)block[i];
       *p++ = word;
    }
 }
@@ -100,7 +103,7 @@ int main(void)
    MX_UART4_Init();
    __HAL_RCC_GPIOA_CLK_ENABLE();
    setup_ddr();
-   SDHandle = setup_sd();
+   sd_handle = setup_sd();
    usb_init();
 
    HAL_Delay(1000);
@@ -112,7 +115,6 @@ int main(void)
 
    while (1) {
       printf(":");
-      fflush(stdout);
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
       HAL_Delay(1000);
    }

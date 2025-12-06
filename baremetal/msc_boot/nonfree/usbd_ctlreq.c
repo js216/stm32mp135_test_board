@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "usbd_ctlreq.h"
 #include "stm32mp13xx_hal_def.h"
+#include "usbd_core.h"
 #include "usbd_ioreq.h"
 
 #ifdef USE_USBD_COMPOSITE

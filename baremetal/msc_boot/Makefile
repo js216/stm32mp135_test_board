@@ -4,11 +4,13 @@ BINARYNAME = build/main
 OBJDIR     = build/obj
 LINKSCR    = src/stm32mp13xx_a7_sysram.ld
 
-SRC := $(wildcard src/*.c drivers/*.c nonfree/*.c)
-OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(SRC))
+SRC := $(wildcard src/*.c)
+HDR := $(wildcard src/*.h)
+DRV := $(wildcard drivers/*.c nonfree/*.c utils/*.c)
+OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(SRC) $(DRV))
 
 CPPFLAGS = \
-	   -Idrivers -Inonfree -Isrc \
+	   -Idrivers -Inonfree -Isrc -Iutils \
 	   -DHAL_DDR_MODULE_ENABLED \
 	   -DCORE_CA7 \
 	   -DDDR_TYPE_DDR3_4Gb \
@@ -75,7 +77,7 @@ cppcheck:
 		--error-exitcode=1 --suppress=missingInclude src
 
 inclusions: $(INC_SRCS) scripts/inclusions.py
-	python3 scripts/inclusions.py $(SRC) $(HDRS) > build/incl.dot ; \
+	python3 scripts/inclusions.py $(SRC) $(HDR) > build/incl.dot ; \
 	PYTHON_EXIT=$$? ; \
 	dot -Tpdf build/incl.dot -o build/incl.pdf ; \
 	exit $$PYTHON_EXIT

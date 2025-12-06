@@ -15,11 +15,9 @@
 #include "stm32mp13xx_hal_pcd.h"
 #include "stm32mp13xx_hal_sd.h"
 #include "stm32mp13xx_hal_uart.h"
-#include <string.h>
 
 // global variables
-extern SD_HandleTypeDef SDHandle;
-extern PCD_HandleTypeDef hpcd_USB_OTG_HS;
+extern SD_HandleTypeDef sd_handle;
 
 // clocks and memory
 void SystemClock_Config(void);

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 
 /**
- * @file hal_conf.h
+ * @file stm32mp13xx_hal_conf.h
  * @brief HAL configuration.
  * @author Jakob Kastelic
  * @copyright 2021 STMicroelectronics
@@ -29,6 +29,7 @@
 
 #define assert_param(expr)                                                     \
    ((expr) ? (void)0U : assert_failed((uint8_t *)__FILE__, __LINE__))
+
 void assert_failed(uint8_t *file, uint32_t line);
 
 #endif /* __STM32MP13xx_HAL_CONF_H */

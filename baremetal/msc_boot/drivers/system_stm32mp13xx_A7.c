@@ -289,10 +289,10 @@ void SecurePhysicalTimer_IRQHandler(void)
 #if defined(__GNUC__)
 #pragma GCC push_options
 #pragma GCC target("general-regs-only")
-void __attribute__((interrupt("IRQ"))) IRQ_Handler(void)
+void __attribute__((interrupt("IRQ"))) irq_handler(void)
 {
 #elif defined(__ICCARM__)
-__irq __arm void IRQ_Handler(void)
+__irq __arm void irq_handler(void)
 {
 #endif
    uint32_t ItId;

@@ -55,19 +55,8 @@
 /*----------------------------------------------------------------------------
   Internal References
  *----------------------------------------------------------------------------*/
-void Vectors(void) __attribute__((naked, section("RESET")));
-void Reset_Handler(void) __attribute__((naked, target("arm")));
-
-/*----------------------------------------------------------------------------
-  Exception / Interrupt Handler
- *----------------------------------------------------------------------------*/
-void Undef_Handler(void) __attribute__((weak, alias("Default_Handler")));
-void SVC_Handler(void) __attribute__((weak, alias("Default_Handler")));
-void PAbt_Handler(void) __attribute__((weak, alias("Default_Handler")));
-void DAbt_Handler(void) __attribute__((weak, alias("Default_Handler")));
-void Rsvd_Handler(void) __attribute__((weak, alias("Default_Handler")));
-void IRQ_Handler(void) __attribute__((weak, alias("Default_Handler")));
-void FIQ_Handler(void) __attribute__((weak, alias("Default_Handler")));
+void vectors(void) __attribute__((naked, section("RESET")));
+void reset_handler(void) __attribute__((naked, target("arm")));
 
 /*----------------------------------------------------------------------------
   SoC External Interrupt Handler
@@ -952,32 +941,23 @@ IRQHandler_t IRQ_Vector_Table[MAX_IRQ_n] = {
 /*----------------------------------------------------------------------------
   Exception / Interrupt Vector Table
  *----------------------------------------------------------------------------*/
-void Vectors(void)
+void vectors(void)
 {
    __asm__ volatile(".align 7                                         \n"
-                    "LDR    PC, =Reset_Handler                        \n"
-                    "LDR    PC, =Undef_Handler                        \n"
-                    "LDR    PC, =SVC_Handler                          \n"
-                    "LDR    PC, =PAbt_Handler                         \n"
-                    "LDR    PC, =DAbt_Handler                         \n"
-                    "LDR    PC, =Rsvd_Handler                         \n"
-                    "LDR    PC, =IRQ_Handler                          \n"
-                    "LDR    PC, =FIQ_Handler                          \n");
-}
-
-/*----------------------------------------------------------------------------
-  Default Handler for Exceptions / Interrupts
- *----------------------------------------------------------------------------*/
-void Default_Handler(void)
-{
-   while (1)
-      ;
+                    "LDR    PC, =reset_handler                        \n"
+                    "LDR    PC, =undef_handler                        \n"
+                    "LDR    PC, =svc_handler                          \n"
+                    "LDR    PC, =pabt_handler                         \n"
+                    "LDR    PC, =dabt_handler                         \n"
+                    "LDR    PC, =rsvd_handler                         \n"
+                    "LDR    PC, =irq_handler                          \n"
+                    "LDR    PC, =fiq_handler                          \n");
 }
 
 /*----------------------------------------------------------------------------
   Reset Handler called on controller reset
  *----------------------------------------------------------------------------*/
-void Reset_Handler(void)
+void reset_handler(void)
 {
    __asm__ volatile(
        ".code 32                                         \n"
@@ -1040,7 +1020,7 @@ void Reset_Handler(void)
 
        /* Set Vector Base Address Register (VBAR) to point to this application's
           vector table */
-       "LDR    R0, =Vectors                             \n"
+       "LDR    R0, =vectors                             \n"
        "MCR    p15, 0, R0, c12, c0, 0                   \n"
        "ISB                                             \n"
 
