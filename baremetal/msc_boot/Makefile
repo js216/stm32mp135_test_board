@@ -26,16 +26,21 @@ CPPFLAGS = \
 	   -DHAL_PCD_MODULE_ENABLED \
 
 CFLAGS = \
+	 -std=c99 -Wall -Wextra -Wpedantic -Wshadow \
+	 -Wmissing-prototypes \
+	-Wpointer-arith -Wfloat-equal     \
 	-g2 -O3 \
 	-mcpu=cortex-a7 -march=armv7ve \
 	-mfpu=neon-vfpv4 -mfloat-abi=hard -mlittle-endian \
 	-fdata-sections -ffunction-sections \
-	-ffreestanding -fno-common -nostartfiles
+	-ffreestanding -fno-common -nostartfiles \
+
 
 LFLAGS = \
 	 -Wl,--gc-sections \
 	 -Wl,-Map,$(BINARYNAME).map,--cref \
-	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
+	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 \
+	 -mlittle-endian -mfloat-abi=hard \
 	 -T $(LINKSCR) \
 	 -specs=nano.specs -specs=nosys.specs \
 	 -nostartfiles \

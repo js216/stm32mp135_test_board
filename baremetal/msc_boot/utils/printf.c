@@ -33,6 +33,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <math.h>
 
 #include "printf.h"
 
@@ -369,7 +370,7 @@ static size_t _ftoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen,
                                   100000000, 1000000000};
 
    // test for special values
-   if (value != value)
+   if (isnan(value))
       return _out_rev(out, buffer, idx, maxlen, "nan", 3, width, flags);
    if (value < -DBL_MAX)
       return _out_rev(out, buffer, idx, maxlen, "fni-", 4, width, flags);
@@ -490,7 +491,7 @@ static size_t _etoa(out_fct_type out, char *buffer, size_t idx, size_t maxlen,
                     unsigned int flags)
 {
    // check for NaN and special values
-   if ((value != value) || (value > DBL_MAX) || (value < -DBL_MAX)) {
+   if (isnan(value) || (value > DBL_MAX) || (value < -DBL_MAX)) {
       return _ftoa(out, buffer, idx, maxlen, value, prec, width, flags);
    }
 

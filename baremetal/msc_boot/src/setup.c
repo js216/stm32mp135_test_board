@@ -34,42 +34,6 @@ UART_HandleTypeDef huart4;
 SD_HandleTypeDef sd_handle;
 USBD_HandleTypeDef usbd_device;
 
-void undef_handler(void)
-{
-   while (1)
-      ;
-};
-
-void svc_handler(void)
-{
-   while (1)
-      ;
-};
-
-void pabt_handler(void)
-{
-   while (1)
-      ;
-};
-
-void dabt_handler(void)
-{
-   while (1)
-      ;
-};
-
-void rsvd_handler(void)
-{
-   while (1)
-      ;
-};
-
-void fiq_handler(void)
-{
-   while (1)
-      ;
-};
-
 void error_msg(const char *msg)
 {
    while (1) {
@@ -333,6 +297,8 @@ void setup_ddr(void)
 
 int HAL_DDR_MspInit(ddr_type type)
 {
+   (void)type;
+   return HAL_OK;
 }
 
 void HAL_UART_MspInit(UART_HandleTypeDef *huart)
@@ -459,7 +425,7 @@ int __io_getchar(void)
    return ch;
 }
 
-SD_HandleTypeDef setup_sd(void)
+void setup_sd(void)
 {
    // unsecure SYSRAM so that SDMMC1 (which we configure as non-secure) can
    // access it
@@ -470,7 +436,6 @@ SD_HandleTypeDef setup_sd(void)
        ETZPC, LL_ETZPC_PERIPH_PROTECTION_READ_WRITE_NONSECURE);
 
    // initialize SDMMC1
-   static SD_HandleTypeDef sd_handle;
    sd_handle.Instance = SDMMC1;
    HAL_SD_DeInit(&sd_handle);
 
@@ -487,8 +452,6 @@ SD_HandleTypeDef setup_sd(void)
 
    while (HAL_SD_GetCardState(&sd_handle) != HAL_SD_CARD_TRANSFER)
       ;
-
-   return sd_handle;
 }
 
 void usb_init(void)

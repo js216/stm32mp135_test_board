@@ -39,7 +39,7 @@ int __io_getchar(void);
 void Error_Handler(void);
 
 // SD
-SD_HandleTypeDef setup_sd(void);
+void setup_sd(void);
 
 // USB
 void usb_init(void);

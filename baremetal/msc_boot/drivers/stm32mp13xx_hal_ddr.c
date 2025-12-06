@@ -507,7 +507,7 @@ static void ddr_delay_us(uint32_t delay_us)
  * @param  timeout_us timeout in us
  * @retval wait_loop_index
  */
-static __IO uint32_t ddr_timeout_init_us(uint32_t timeout_us)
+static uint32_t ddr_timeout_init_us(uint32_t timeout_us)
 {
    __IO uint32_t wait_loop_index = 0U;
 

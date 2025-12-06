@@ -1174,7 +1174,7 @@ uint32_t HAL_DMA_GetError(const DMA_HandleTypeDef *hdma);
 
 #if defined(DMAMUX2)
 #define IS_DMA3_REQUEST(REQUEST)                                               \
-   (((REQUEST) >= DMA_REQUEST_SEC_MEM2MEM) &&                                  \
+   (/*((REQUEST) >= DMA_REQUEST_SEC_MEM2MEM) && */                             \
     ((REQUEST) <= DMA_REQUEST_SEC_TIM17_UP))
 #endif /* DMAMUX2 */
 

@@ -35,31 +35,31 @@ EndBSPDependencies */
 /* Private functions ---------------------------------------------------------*/
 
 #define STORAGE_LUN_NBR 1U
-#define STORAGE_BLK_NBR 0x100000
+#define STORAGE_BLK_NBR 0x100000U
 #define STORAGE_BLK_SIZ 0x200U
 
 __attribute__((section(".virtdrive"))) static volatile uint8_t
     virtdrive[STORAGE_BLK_NBR * STORAGE_BLK_SIZ];
 
-int8_t STORAGE_Init(uint8_t lun);
+uint8_t STORAGE_Init(uint8_t lun);
 
-int8_t STORAGE_GetCapacity(uint8_t lun, uint32_t *block_num,
+uint8_t STORAGE_GetCapacity(uint8_t lun, uint32_t *block_num,
                            uint16_t *block_size);
 
-int8_t STORAGE_IsReady(uint8_t lun);
+uint8_t STORAGE_IsReady(uint8_t lun);
 
-int8_t STORAGE_IsWriteProtected(uint8_t lun);
+uint8_t STORAGE_IsWriteProtected(uint8_t lun);
 
-int8_t STORAGE_Read(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
+uint8_t STORAGE_Read(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
                     uint16_t blk_len);
 
-int8_t STORAGE_Write(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
+uint8_t STORAGE_Write(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
                      uint16_t blk_len);
 
-int8_t STORAGE_GetMaxLun(void);
+uint8_t STORAGE_GetMaxLun(void);
 
 /* USB Mass storage Standard Inquiry Data */
-int8_t STORAGE_Inquirydata[] = /* 36 */
+uint8_t STORAGE_Inquirydata[] = /* 36 */
     {
 
         /* LUN 0 */
@@ -87,7 +87,7 @@ USBD_StorageTypeDef USBD_MSC_fops = {
  * @param  lun: Logical unit number
  * @retval Status (0 : OK / -1 : Error)
  */
-int8_t STORAGE_Init(uint8_t lun)
+uint8_t STORAGE_Init(uint8_t lun)
 {
    UNUSED(lun);
 
@@ -101,7 +101,7 @@ int8_t STORAGE_Init(uint8_t lun)
  * @param  block_size: Block size
  * @retval Status (0: OK / -1: Error)
  */
-int8_t STORAGE_GetCapacity(uint8_t lun, uint32_t *block_num,
+uint8_t STORAGE_GetCapacity(uint8_t lun, uint32_t *block_num,
                            uint16_t *block_size)
 {
    UNUSED(lun);
@@ -116,7 +116,7 @@ int8_t STORAGE_GetCapacity(uint8_t lun, uint32_t *block_num,
  * @param  lun: Logical unit number
  * @retval Status (0: OK / -1: Error)
  */
-int8_t STORAGE_IsReady(uint8_t lun)
+uint8_t STORAGE_IsReady(uint8_t lun)
 {
    UNUSED(lun);
 
@@ -128,7 +128,7 @@ int8_t STORAGE_IsReady(uint8_t lun)
  * @param  lun: Logical unit number
  * @retval Status (0: write enabled / -1: otherwise)
  */
-int8_t STORAGE_IsWriteProtected(uint8_t lun)
+uint8_t STORAGE_IsWriteProtected(uint8_t lun)
 {
    UNUSED(lun);
 
@@ -143,15 +143,17 @@ int8_t STORAGE_IsWriteProtected(uint8_t lun)
  * @param  blk_len: Blocks number
  * @retval Status (0: OK / -1: Error)
  */
-int8_t STORAGE_Read(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
+uint8_t STORAGE_Read(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
                     uint16_t blk_len)
 {
+   (void)lun;
+
    const uint32_t *src =
        (const uint32_t *)&virtdrive[blk_addr * STORAGE_BLK_SIZ];
    uint8_t *dst = buf;
 
    for (uint32_t blk = 0; blk < blk_len; blk++) {
-      for (int i = 0; i < STORAGE_BLK_SIZ; i += 4) {
+      for (uint32_t i = 0; i < STORAGE_BLK_SIZ; i += 4) {
          uint32_t w = *src++; /* 32-bit aligned read */
 
          dst[0] = (uint8_t)(w & 0xff);
@@ -174,14 +176,16 @@ int8_t STORAGE_Read(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
  * @param  blk_len: Blocks number
  * @retval Status (0 : OK / -1 : Error)
  */
-int8_t STORAGE_Write(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
+uint8_t STORAGE_Write(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
                      uint16_t blk_len)
 {
+   (void)lun;
+
    uint8_t *src  = buf;
    uint32_t *dst = (uint32_t *)&virtdrive[blk_addr * STORAGE_BLK_SIZ];
 
    for (uint32_t blk = 0; blk < blk_len; blk++) {
-      for (int i = 0; i < STORAGE_BLK_SIZ; i += 4) {
+      for (uint32_t i = 0; i < STORAGE_BLK_SIZ; i += 4) {
          uint32_t w = ((uint32_t)src[i + 3] << 24) |
                       ((uint32_t)src[i + 2] << 16) |
                       ((uint32_t)src[i + 1] << 8) | ((uint32_t)src[i + 0]);
@@ -198,7 +202,7 @@ int8_t STORAGE_Write(uint8_t lun, uint8_t *buf, uint32_t blk_addr,
  * @param  None
  * @retval Lun(s) number
  */
-int8_t STORAGE_GetMaxLun(void)
+uint8_t STORAGE_GetMaxLun(void)
 {
    return (STORAGE_LUN_NBR - 1);
 }

@@ -129,7 +129,7 @@ extern uint32_t __TEXT_START__; // Start of code section (RO+Executable)
 extern uint32_t __TEXT_END__;   // End of code section (4096 bytes aligned)
 extern uint32_t __RO_START__; // Start of data RO section (RO + Non-Executable)
 extern uint32_t __RO_END__;   // End of RO section (4096 bytes aligned)
-extern uint32_t TTB;
+extern uint32_t TTB[];
 #endif
 
 // Level 2 table pointers
@@ -177,7 +177,7 @@ void MMU_CreateTranslationTable(void)
    uint32_t *rodata_end_addr   = __section_end("RO_DATA");
    uint32_t *ttb_addr          = __section_begin("TTB");
 #else
-   uint32_t *ttb_addr          = &TTB;
+   uint32_t *ttb_addr          = TTB;
    uint32_t *text_start_addr   = &__TEXT_START__;
    uint32_t *text_end_addr     = &__TEXT_END__;
    uint32_t *rodata_start_addr = &__RO_START__;

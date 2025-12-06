@@ -41,9 +41,18 @@
 
 #include "irq_ctrl.h"
 #include "stm32mp13xx.h"
+
+/*----------------------------------------------------------------------------
+  Handler prototypes declared elsewhere
+ *----------------------------------------------------------------------------*/
+
+void OTG_IRQHandler(void);
+void SecurePhysicalTimer_IRQHandler(void);
+
 /*----------------------------------------------------------------------------
   Definitions
  *----------------------------------------------------------------------------*/
+
 #define USR_MODE 0x10 /* User mode */
 #define FIQ_MODE 0x11 /* Fast Interrupt Request mode */
 #define IRQ_MODE 0x12 /* Interrupt Request mode */
@@ -51,6 +60,47 @@
 #define ABT_MODE 0x17 /* Abort mode */
 #define UND_MODE 0x1B /* Undefined Instruction mode */
 #define SYS_MODE 0x1F /* System mode */
+
+/*----------------------------------------------------------------------------
+  Exception handlers
+ *----------------------------------------------------------------------------*/
+
+void undef_handler(void)
+{
+   while (1)
+      ;
+}
+
+void svc_handler(void)
+{
+   while (1)
+      ;
+}
+
+void pabt_handler(void)
+{
+   while (1)
+      ;
+}
+
+void dabt_handler(void)
+{
+   while (1)
+      ;
+}
+
+void rsvd_handler(void)
+{
+   while (1)
+      ;
+}
+
+void fiq_handler(void)
+{
+   while (1)
+      ;
+}
+
 
 /*----------------------------------------------------------------------------
   Internal References
@@ -61,691 +111,683 @@ void reset_handler(void) __attribute__((naked, target("arm")));
 /*----------------------------------------------------------------------------
   SoC External Interrupt Handler
  *----------------------------------------------------------------------------*/
-void __attribute__((weak)) RESERVED_IRQHandler(void)
+static void RESERVED_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI0_IRQHandler(void)
+static void SGI0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI1_IRQHandler(void)
+static void SGI1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI2_IRQHandler(void)
+static void SGI2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI3_IRQHandler(void)
+static void SGI3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI4_IRQHandler(void)
+static void SGI4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI5_IRQHandler(void)
+static void SGI5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI6_IRQHandler(void)
+static void SGI6_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI7_IRQHandler(void)
+static void SGI7_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI8_IRQHandler(void)
+static void SGI8_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI9_IRQHandler(void)
+static void SGI9_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI10_IRQHandler(void)
+static void SGI10_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI11_IRQHandler(void)
+static void SGI11_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI12_IRQHandler(void)
+static void SGI12_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI13_IRQHandler(void)
+static void SGI13_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI14_IRQHandler(void)
+static void SGI14_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SGI15_IRQHandler(void)
+static void SGI15_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) VirtualMaintenanceInterrupt_IRQHandler(void)
+static void VirtualMaintenanceInterrupt_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) HypervisorTimer_IRQHandler(void)
+static void HypervisorTimer_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) VirtualTimer_IRQHandler(void)
+static void VirtualTimer_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) Legacy_nFIQ_IRQHandler(void)
+static void Legacy_nFIQ_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SecurePhysicalTimer_IRQHandler(void)
+static void NonSecurePhysicalTimer_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) NonSecurePhysicalTimer_IRQHandler(void)
+static void Legacy_nIRQ_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) Legacy_nIRQ_IRQHandler(void)
+static void PVD_AVD_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) PVD_AVD_IRQHandler(void)
+static void TAMP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TAMP_IRQHandler(void)
+static void RTC_WKUP_ALARM_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) RTC_WKUP_ALARM_IRQHandler(void)
+static void TZC_IT_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TZC_IT_IRQHandler(void)
+static void RCC_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) RCC_IRQHandler(void)
+static void EXTI0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI0_IRQHandler(void)
+static void EXTI1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI1_IRQHandler(void)
+static void EXTI2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI2_IRQHandler(void)
+static void EXTI3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI3_IRQHandler(void)
+static void EXTI4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI4_IRQHandler(void)
+static void DMA1_Stream0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream0_IRQHandler(void)
+static void DMA1_Stream1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream1_IRQHandler(void)
+static void DMA1_Stream2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream2_IRQHandler(void)
+static void DMA1_Stream3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream3_IRQHandler(void)
+static void DMA1_Stream4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream4_IRQHandler(void)
+static void DMA1_Stream5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream5_IRQHandler(void)
+static void DMA1_Stream6_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream6_IRQHandler(void)
+static void ADC1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ADC1_IRQHandler(void)
+static void ADC2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ADC2_IRQHandler(void)
+static void FDCAN1_IT0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) FDCAN1_IT0_IRQHandler(void)
+static void FDCAN2_IT0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) FDCAN2_IT0_IRQHandler(void)
+static void FDCAN1_IT1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) FDCAN1_IT1_IRQHandler(void)
+static void FDCAN2_IT1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) FDCAN2_IT1_IRQHandler(void)
+static void EXTI5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI5_IRQHandler(void)
+static void TIM1_BRK_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM1_BRK_IRQHandler(void)
+static void TIM1_UP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM1_UP_IRQHandler(void)
+static void TIM1_TRG_COM_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM1_TRG_COM_IRQHandler(void)
+static void TIM1_CC_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM1_CC_IRQHandler(void)
+static void TIM2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM2_IRQHandler(void)
+static void TIM3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM3_IRQHandler(void)
+static void TIM4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM4_IRQHandler(void)
+static void I2C1_EV_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C1_EV_IRQHandler(void)
+static void I2C1_ER_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C1_ER_IRQHandler(void)
+static void I2C2_EV_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C2_EV_IRQHandler(void)
+static void I2C2_ER_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C2_ER_IRQHandler(void)
+static void SPI1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SPI1_IRQHandler(void)
+static void SPI2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SPI2_IRQHandler(void)
+static void USART1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) USART1_IRQHandler(void)
+static void USART2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) USART2_IRQHandler(void)
+static void USART3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) USART3_IRQHandler(void)
+static void EXTI10_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI10_IRQHandler(void)
+static void RTC_TIMESTAMP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) RTC_TIMESTAMP_IRQHandler(void)
+static void EXTI11_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI11_IRQHandler(void)
+static void TIM8_BRK_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM8_BRK_IRQHandler(void)
+static void TIM8_UP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM8_UP_IRQHandler(void)
+static void TIM8_TRG_COM_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM8_TRG_COM_IRQHandler(void)
+static void TIM8_CC_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM8_CC_IRQHandler(void)
+static void DMA1_Stream7_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA1_Stream7_IRQHandler(void)
+static void FMC_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) FMC_IRQHandler(void)
+static void SDMMC1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SDMMC1_IRQHandler(void)
+static void TIM5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM5_IRQHandler(void)
+static void SPI3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SPI3_IRQHandler(void)
+static void UART4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) UART4_IRQHandler(void)
+static void UART5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) UART5_IRQHandler(void)
+static void TIM6_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM6_IRQHandler(void)
+static void TIM7_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM7_IRQHandler(void)
+static void DMA2_Stream0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream0_IRQHandler(void)
+static void DMA2_Stream1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream1_IRQHandler(void)
+static void DMA2_Stream2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream2_IRQHandler(void)
+static void DMA2_Stream3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream3_IRQHandler(void)
+static void DMA2_Stream4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream4_IRQHandler(void)
+static void ETH1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ETH1_IRQHandler(void)
+static void ETH1_WKUP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ETH1_WKUP_IRQHandler(void)
+static void FDCAN_CAL_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) FDCAN_CAL_IRQHandler(void)
+static void EXTI6_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI6_IRQHandler(void)
+static void EXTI7_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI7_IRQHandler(void)
+static void EXTI8_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI8_IRQHandler(void)
+static void EXTI9_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI9_IRQHandler(void)
+static void DMA2_Stream5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream5_IRQHandler(void)
+static void DMA2_Stream6_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream6_IRQHandler(void)
+static void DMA2_Stream7_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA2_Stream7_IRQHandler(void)
+static void USART6_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) USART6_IRQHandler(void)
+static void I2C3_EV_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C3_EV_IRQHandler(void)
+static void I2C3_ER_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C3_ER_IRQHandler(void)
+static void USBH_PORT1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) USBH_PORT1_IRQHandler(void)
+static void USBH_PORT2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) USBH_PORT2_IRQHandler(void)
+static void EXTI12_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI12_IRQHandler(void)
+static void EXTI13_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI13_IRQHandler(void)
+static void DCMIPP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DCMIPP_IRQHandler(void)
+static void CRYP1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) CRYP1_IRQHandler(void)
+static void HASH1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) HASH1_IRQHandler(void)
+static void SAES_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SAES_IRQHandler(void)
+static void UART7_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) UART7_IRQHandler(void)
+static void UART8_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) UART8_IRQHandler(void)
+static void SPI4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SPI4_IRQHandler(void)
+static void SPI5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SPI5_IRQHandler(void)
+static void SAI1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SAI1_IRQHandler(void)
+static void LTDC_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LTDC_IRQHandler(void)
+static void LTDC_ER_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LTDC_ER_IRQHandler(void)
+static void SAI2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SAI2_IRQHandler(void)
+static void QUADSPI_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) QUADSPI_IRQHandler(void)
+static void LPTIM1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LPTIM1_IRQHandler(void)
+static void I2C4_EV_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C4_EV_IRQHandler(void)
+static void I2C4_ER_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C4_ER_IRQHandler(void)
+static void SPDIF_RX_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SPDIF_RX_IRQHandler(void)
+static void ETH2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) OTG_IRQHandler(void)
+static void ETH2_WKUP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ETH2_IRQHandler(void)
+static void DMAMUX1_OVR_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ETH2_WKUP_IRQHandler(void)
+static void DMAMUX2_OVR_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMAMUX1_OVR_IRQHandler(void)
+static void TIM15_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMAMUX2_OVR_IRQHandler(void)
+static void TIM16_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM15_IRQHandler(void)
+static void TIM17_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM16_IRQHandler(void)
+static void TIM12_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM17_IRQHandler(void)
+static void PKA_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM12_IRQHandler(void)
+static void EXTI14_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) PKA_IRQHandler(void)
+static void MDMA_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI14_IRQHandler(void)
+static void SDMMC2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) MDMA_IRQHandler(void)
+static void EXTI15_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) SDMMC2_IRQHandler(void)
+static void MDMA_SEC_IT_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) EXTI15_IRQHandler(void)
+static void TIM13_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) MDMA_SEC_IT_IRQHandler(void)
+static void TIM14_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM13_IRQHandler(void)
+static void RNG1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TIM14_IRQHandler(void)
+static void I2C5_EV_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) RNG1_IRQHandler(void)
+static void I2C5_ER_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C5_EV_IRQHandler(void)
+static void LPTIM2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) I2C5_ER_IRQHandler(void)
+static void LPTIM3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LPTIM2_IRQHandler(void)
+static void LPTIM4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LPTIM3_IRQHandler(void)
+static void LPTIM5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LPTIM4_IRQHandler(void)
+static void ETH1_LPI_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LPTIM5_IRQHandler(void)
+static void ETH2_LPI_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ETH1_LPI_IRQHandler(void)
+static void RCC_WAKEUP_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) ETH2_LPI_IRQHandler(void)
+static void DTS_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) RCC_WAKEUP_IRQHandler(void)
+static void MPU_WAKEUP_PIN_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DTS_IRQHandler(void)
+static void IWDG1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) MPU_WAKEUP_PIN_IRQHandler(void)
+static void IWDG2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) IWDG1_IRQHandler(void)
+static void TAMP_SIRQHandler(void)
 {
 }
 
-void __attribute__((weak)) IWDG2_IRQHandler(void)
+static void RTC_WKUP_ALARM_S_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) TAMP_SIRQHandler(void)
+static void RTC_TS_S_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) RTC_WKUP_ALARM_S_IRQHandler(void)
+static void LTDC_SEC_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) RTC_TS_S_IRQHandler(void)
+static void LTDC_SEC_ER_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LTDC_SEC_IRQHandler(void)
+static void PMUIRQ0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) LTDC_SEC_ER_IRQHandler(void)
+static void COMMRX0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) PMUIRQ0_IRQHandler(void)
+static void COMMTX0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) COMMRX0_IRQHandler(void)
+static void AXIERRIRQ_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) COMMTX0_IRQHandler(void)
+static void DDRPERFM_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) AXIERRIRQ_IRQHandler(void)
+static void nCTIIRQ0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DDRPERFM_IRQHandler(void)
+static void MCE_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) nCTIIRQ0_IRQHandler(void)
+static void DFSDM1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) MCE_IRQHandler(void)
+static void DFSDM2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DFSDM1_IRQHandler(void)
+static void DMA3_Stream0_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DFSDM2_IRQHandler(void)
+static void DMA3_Stream1_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA3_Stream0_IRQHandler(void)
+static void DMA3_Stream2_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA3_Stream1_IRQHandler(void)
+static void DMA3_Stream3_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA3_Stream2_IRQHandler(void)
+static void DMA3_Stream4_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA3_Stream3_IRQHandler(void)
+static void DMA3_Stream5_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA3_Stream4_IRQHandler(void)
+static void DMA3_Stream6_IRQHandler(void)
 {
 }
 
-void __attribute__((weak)) DMA3_Stream5_IRQHandler(void)
-{
-}
-
-void __attribute__((weak)) DMA3_Stream6_IRQHandler(void)
-{
-}
-
-void __attribute__((weak)) DMA3_Stream7_IRQHandler(void)
+static void DMA3_Stream7_IRQHandler(void)
 {
 }
 

@@ -195,7 +195,7 @@ void MSC_BOT_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
 
    switch (hmsc->bot_state) {
       case USBD_BOT_DATA_IN:
-         if (SCSI_ProcessCmd(pdev, hmsc->cbw.bLUN, &hmsc->cbw.CB[0]) < 0) {
+         if (SCSI_ProcessCmd(pdev, hmsc->cbw.bLUN, &hmsc->cbw.CB[0]) != 0) {
             MSC_BOT_SendCSW(pdev, USBD_CSW_CMD_FAILED);
          }
          break;
@@ -231,7 +231,7 @@ void MSC_BOT_DataOut(USBD_HandleTypeDef *pdev, uint8_t epnum)
       case USBD_BOT_IDLE: MSC_BOT_CBW_Decode(pdev); break;
 
       case USBD_BOT_DATA_OUT:
-         if (SCSI_ProcessCmd(pdev, hmsc->cbw.bLUN, &hmsc->cbw.CB[0]) < 0) {
+         if (SCSI_ProcessCmd(pdev, hmsc->cbw.bLUN, &hmsc->cbw.CB[0]) != 0) {
             MSC_BOT_SendCSW(pdev, USBD_CSW_CMD_FAILED);
          }
          break;
@@ -275,7 +275,7 @@ static void MSC_BOT_CBW_Decode(USBD_HandleTypeDef *pdev)
       hmsc->bot_status = USBD_BOT_STATUS_ERROR;
       MSC_BOT_Abort(pdev);
    } else {
-      if (SCSI_ProcessCmd(pdev, hmsc->cbw.bLUN, &hmsc->cbw.CB[0]) < 0) {
+      if (SCSI_ProcessCmd(pdev, hmsc->cbw.bLUN, &hmsc->cbw.CB[0]) != 0) {
          if (hmsc->bot_state == USBD_BOT_NO_DATA) {
             MSC_BOT_SendCSW(pdev, USBD_CSW_CMD_FAILED);
          } else {

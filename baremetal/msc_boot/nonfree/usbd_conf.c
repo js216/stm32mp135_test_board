@@ -34,14 +34,14 @@
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-PCD_HandleTypeDef hpcd;
+PCD_HandleTypeDef hpcd_handle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 
 void OTG_IRQHandler(void)
 {
-   HAL_PCD_IRQHandler(&hpcd);
+   HAL_PCD_IRQHandler(&hpcd_handle);
 }
 
 /*******************************************************************************
@@ -245,29 +245,29 @@ Library --> PCD)
  */
 USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
 {
-   memset(&hpcd, 0x0, sizeof(PCD_HandleTypeDef));
-   hpcd.Instance                 = USB_OTG_HS;
-   hpcd.Init.dev_endpoints       = 9;
-   hpcd.Init.speed               = PCD_SPEED_HIGH;
-   hpcd.Init.dma_enable          = DISABLE;
-   hpcd.Init.phy_itface          = USB_OTG_HS_EMBEDDED_PHY;
-   hpcd.Init.Sof_enable          = DISABLE;
-   hpcd.Init.low_power_enable    = DISABLE;
-   hpcd.Init.lpm_enable          = DISABLE;
-   hpcd.Init.vbus_sensing_enable = DISABLE;
-   hpcd.Init.use_dedicated_ep1   = DISABLE;
-   hpcd.Init.use_external_vbus   = DISABLE;
-   hpcd.pData                    = pdev;
-   pdev->pData                   = &hpcd;
+   memset(&hpcd_handle, 0x0, sizeof(PCD_HandleTypeDef));
+   hpcd_handle.Instance                 = USB_OTG_HS;
+   hpcd_handle.Init.dev_endpoints       = 9;
+   hpcd_handle.Init.speed               = PCD_SPEED_HIGH;
+   hpcd_handle.Init.dma_enable          = DISABLE;
+   hpcd_handle.Init.phy_itface          = USB_OTG_HS_EMBEDDED_PHY;
+   hpcd_handle.Init.Sof_enable          = DISABLE;
+   hpcd_handle.Init.low_power_enable    = DISABLE;
+   hpcd_handle.Init.lpm_enable          = DISABLE;
+   hpcd_handle.Init.vbus_sensing_enable = DISABLE;
+   hpcd_handle.Init.use_dedicated_ep1   = DISABLE;
+   hpcd_handle.Init.use_external_vbus   = DISABLE;
+   hpcd_handle.pData                    = pdev;
+   pdev->pData                   = &hpcd_handle;
 
-   if (HAL_PCD_Init(&hpcd) != HAL_OK) {
+   if (HAL_PCD_Init(&hpcd_handle) != HAL_OK) {
       Error_Handler();
       return USBD_FAIL;
    }
 
-   HAL_PCDEx_SetRxFiFo(&hpcd, 0x200);
-   HAL_PCDEx_SetTxFiFo(&hpcd, 0, 0x40);
-   HAL_PCDEx_SetTxFiFo(&hpcd, 1, 0x100);
+   HAL_PCDEx_SetRxFiFo(&hpcd_handle, 0x200);
+   HAL_PCDEx_SetTxFiFo(&hpcd_handle, 0, 0x40);
+   HAL_PCDEx_SetTxFiFo(&hpcd_handle, 1, 0x100);
 
    return USBD_OK;
 }
@@ -448,6 +448,8 @@ uint32_t USBD_LL_GetRxDataSize(USBD_HandleTypeDef *pdev, uint8_t ep_addr)
  */
 void *USBD_static_malloc(uint32_t size)
 {
+   (void)size;
+
    static uint32_t mem[(sizeof(USBD_MSC_BOT_HandleTypeDef) / 4) +
                        1]; /* On 32-bit boundary */
    return mem;
@@ -460,6 +462,7 @@ void *USBD_static_malloc(uint32_t size)
  */
 void USBD_static_free(void *p)
 {
+   (void)p;
 }
 
 /**

@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include "printf.h"
 
-void print_ddr(const int num_words)
+static void print_ddr(const int num_words)
 {
    for (int i = 0; i < num_words / 4; i += 4) {
       // print address
@@ -51,26 +51,7 @@ void print_ddr(const int num_words)
    }
 }
 
-void fill_dram(const int num_bytes)
-{
-   uint32_t *p = (uint32_t *)DRAM_MEM_BASE;
-   uint32_t i  = 0;
-
-   // write 4 bytes per word
-   while (i < num_bytes) {
-      uint32_t b0 = (uint8_t)(i & 0xFFU);
-      uint32_t b1 = (uint8_t)((i + 1) & 0xFFU);
-      uint32_t b2 = (uint8_t)((i + 2) & 0xFFU);
-      uint32_t b3 = (uint8_t)((i + 3) & 0xFFU);
-
-      uint32_t word = (b3 << 24U) | (b2 << 16U) | (b1 << 8U) | b0;
-      *p++          = word;
-
-      i += 4;
-   }
-}
-
-void read_sd_blocking(void)
+static void read_sd_blocking(void)
 {
    const int app_offset   = 0;
    const int num_blocks   = 1;
@@ -103,7 +84,7 @@ int main(void)
    MX_UART4_Init();
    __HAL_RCC_GPIOA_CLK_ENABLE();
    setup_ddr();
-   sd_handle = setup_sd();
+   setup_sd();
    usb_init();
 
    HAL_Delay(1000);

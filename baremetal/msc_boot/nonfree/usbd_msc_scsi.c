@@ -72,43 +72,43 @@ extern uint8_t MSCOutEpAdd;
 /** @defgroup MSC_SCSI_Private_FunctionPrototypes
  * @{
  */
-static int8_t SCSI_TestUnitReady(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_TestUnitReady(USBD_HandleTypeDef *pdev, uint8_t lun,
                                  uint8_t *params);
-static int8_t SCSI_Inquiry(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Inquiry(USBD_HandleTypeDef *pdev, uint8_t lun,
                            uint8_t *params);
-static int8_t SCSI_ReadFormatCapacity(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ReadFormatCapacity(USBD_HandleTypeDef *pdev, uint8_t lun,
                                       uint8_t *params);
-static int8_t SCSI_ReadCapacity10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ReadCapacity10(USBD_HandleTypeDef *pdev, uint8_t lun,
                                   uint8_t *params);
-static int8_t SCSI_ReadCapacity16(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ReadCapacity16(USBD_HandleTypeDef *pdev, uint8_t lun,
                                   uint8_t *params);
-static int8_t SCSI_RequestSense(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_RequestSense(USBD_HandleTypeDef *pdev, uint8_t lun,
                                 uint8_t *params);
-static int8_t SCSI_StartStopUnit(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_StartStopUnit(USBD_HandleTypeDef *pdev, uint8_t lun,
                                  uint8_t *params);
-static int8_t SCSI_AllowPreventRemovable(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_AllowPreventRemovable(USBD_HandleTypeDef *pdev, uint8_t lun,
                                          uint8_t *params);
-static int8_t SCSI_ModeSense6(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ModeSense6(USBD_HandleTypeDef *pdev, uint8_t lun,
                               uint8_t *params);
-static int8_t SCSI_ModeSense10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ModeSense10(USBD_HandleTypeDef *pdev, uint8_t lun,
                                uint8_t *params);
-static int8_t SCSI_Write10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Write10(USBD_HandleTypeDef *pdev, uint8_t lun,
                            uint8_t *params);
-static int8_t SCSI_Write12(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Write12(USBD_HandleTypeDef *pdev, uint8_t lun,
                            uint8_t *params);
-static int8_t SCSI_Read10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Read10(USBD_HandleTypeDef *pdev, uint8_t lun,
                           uint8_t *params);
-static int8_t SCSI_Read12(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Read12(USBD_HandleTypeDef *pdev, uint8_t lun,
                           uint8_t *params);
-static int8_t SCSI_Verify10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Verify10(USBD_HandleTypeDef *pdev, uint8_t lun,
                             uint8_t *params);
-static int8_t SCSI_CheckAddressRange(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_CheckAddressRange(USBD_HandleTypeDef *pdev, uint8_t lun,
                                      uint32_t blk_offset, uint32_t blk_nbr);
 
-static int8_t SCSI_ProcessRead(USBD_HandleTypeDef *pdev, uint8_t lun);
-static int8_t SCSI_ProcessWrite(USBD_HandleTypeDef *pdev, uint8_t lun);
+static uint8_t SCSI_ProcessRead(USBD_HandleTypeDef *pdev, uint8_t lun);
+static uint8_t SCSI_ProcessWrite(USBD_HandleTypeDef *pdev, uint8_t lun);
 
-static int8_t SCSI_UpdateBotData(USBD_MSC_BOT_HandleTypeDef *hmsc,
+static uint8_t SCSI_UpdateBotData(USBD_MSC_BOT_HandleTypeDef *hmsc,
                                  uint8_t *pBuff, uint16_t length);
 
 /**
@@ -127,9 +127,9 @@ static int8_t SCSI_UpdateBotData(USBD_MSC_BOT_HandleTypeDef *hmsc,
  * @param  params: Command parameters
  * @retval status
  */
-int8_t SCSI_ProcessCmd(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t *cmd)
+uint8_t SCSI_ProcessCmd(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t *cmd)
 {
-   int8_t ret;
+   uint8_t ret;
    USBD_MSC_BOT_HandleTypeDef *hmsc =
        (USBD_MSC_BOT_HandleTypeDef *)pdev->pClassDataCmsit[pdev->classId];
 
@@ -197,7 +197,7 @@ int8_t SCSI_ProcessCmd(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t *cmd)
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_TestUnitReady(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_TestUnitReady(USBD_HandleTypeDef *pdev, uint8_t lun,
                                  uint8_t *params)
 {
    UNUSED(params);
@@ -240,7 +240,7 @@ static int8_t SCSI_TestUnitReady(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_Inquiry(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Inquiry(USBD_HandleTypeDef *pdev, uint8_t lun,
                            uint8_t *params)
 {
    uint8_t *pPage;
@@ -299,11 +299,11 @@ static int8_t SCSI_Inquiry(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_ReadCapacity10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ReadCapacity10(USBD_HandleTypeDef *pdev, uint8_t lun,
                                   uint8_t *params)
 {
    UNUSED(params);
-   int8_t ret;
+   uint8_t ret;
    USBD_MSC_BOT_HandleTypeDef *hmsc =
        (USBD_MSC_BOT_HandleTypeDef *)pdev->pClassDataCmsit[pdev->classId];
 
@@ -341,12 +341,12 @@ static int8_t SCSI_ReadCapacity10(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_ReadCapacity16(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ReadCapacity16(USBD_HandleTypeDef *pdev, uint8_t lun,
                                   uint8_t *params)
 {
    UNUSED(params);
    uint8_t idx;
-   int8_t ret;
+   uint8_t ret;
    USBD_MSC_BOT_HandleTypeDef *hmsc =
        (USBD_MSC_BOT_HandleTypeDef *)pdev->pClassDataCmsit[pdev->classId];
 
@@ -394,14 +394,14 @@ static int8_t SCSI_ReadCapacity16(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_ReadFormatCapacity(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ReadFormatCapacity(USBD_HandleTypeDef *pdev, uint8_t lun,
                                       uint8_t *params)
 {
    UNUSED(params);
    uint16_t blk_size;
    uint32_t blk_nbr;
    uint16_t i;
-   int8_t ret;
+   uint8_t ret;
    USBD_MSC_BOT_HandleTypeDef *hmsc =
        (USBD_MSC_BOT_HandleTypeDef *)pdev->pClassDataCmsit[pdev->classId];
 
@@ -444,7 +444,7 @@ static int8_t SCSI_ReadFormatCapacity(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_ModeSense6(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ModeSense6(USBD_HandleTypeDef *pdev, uint8_t lun,
                               uint8_t *params)
 {
    UNUSED(lun);
@@ -472,7 +472,7 @@ static int8_t SCSI_ModeSense6(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_ModeSense10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_ModeSense10(USBD_HandleTypeDef *pdev, uint8_t lun,
                                uint8_t *params)
 {
    UNUSED(lun);
@@ -500,7 +500,7 @@ static int8_t SCSI_ModeSense10(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_RequestSense(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_RequestSense(USBD_HandleTypeDef *pdev, uint8_t lun,
                                 uint8_t *params)
 {
    UNUSED(lun);
@@ -583,7 +583,7 @@ void SCSI_SenseCode(USBD_HandleTypeDef *pdev, uint8_t lun, uint8_t sKey,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_StartStopUnit(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_StartStopUnit(USBD_HandleTypeDef *pdev, uint8_t lun,
                                  uint8_t *params)
 {
    UNUSED(lun);
@@ -625,7 +625,7 @@ static int8_t SCSI_StartStopUnit(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_AllowPreventRemovable(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_AllowPreventRemovable(USBD_HandleTypeDef *pdev, uint8_t lun,
                                          uint8_t *params)
 {
    UNUSED(lun);
@@ -654,7 +654,7 @@ static int8_t SCSI_AllowPreventRemovable(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_Read10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Read10(USBD_HandleTypeDef *pdev, uint8_t lun,
                           uint8_t *params)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
@@ -695,7 +695,7 @@ static int8_t SCSI_Read10(USBD_HandleTypeDef *pdev, uint8_t lun,
                            ((uint32_t)((volatile uint8_t *)params)[8]);
 
       if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
-                                 hmsc->scsi_blk_len) < 0) {
+                                 hmsc->scsi_blk_len) != 0) {
          return -1; /* error */
       }
 
@@ -719,7 +719,7 @@ static int8_t SCSI_Read10(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_Read12(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Read12(USBD_HandleTypeDef *pdev, uint8_t lun,
                           uint8_t *params)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
@@ -761,7 +761,7 @@ static int8_t SCSI_Read12(USBD_HandleTypeDef *pdev, uint8_t lun,
                            ((uint32_t)((volatile uint8_t *)params)[9]);
 
       if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
-                                 hmsc->scsi_blk_len) < 0) {
+                                 hmsc->scsi_blk_len) != 0) {
          return -1; /* error */
       }
 
@@ -785,7 +785,7 @@ static int8_t SCSI_Read12(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_Write10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Write10(USBD_HandleTypeDef *pdev, uint8_t lun,
                            uint8_t *params)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
@@ -841,7 +841,7 @@ static int8_t SCSI_Write10(USBD_HandleTypeDef *pdev, uint8_t lun,
 
       /* check if LBA address is in the right range */
       if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
-                                 hmsc->scsi_blk_len) < 0) {
+                                 hmsc->scsi_blk_len) != 0) {
          return -1; /* error */
       }
 
@@ -873,7 +873,7 @@ static int8_t SCSI_Write10(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_Write12(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Write12(USBD_HandleTypeDef *pdev, uint8_t lun,
                            uint8_t *params)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
@@ -932,7 +932,7 @@ static int8_t SCSI_Write12(USBD_HandleTypeDef *pdev, uint8_t lun,
 
       /* check if LBA address is in the right range */
       if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
-                                 hmsc->scsi_blk_len) < 0) {
+                                 hmsc->scsi_blk_len) != 0) {
          return -1; /* error */
       }
 
@@ -964,7 +964,7 @@ static int8_t SCSI_Write12(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  params: Command parameters
  * @retval status
  */
-static int8_t SCSI_Verify10(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_Verify10(USBD_HandleTypeDef *pdev, uint8_t lun,
                             uint8_t *params)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
@@ -980,7 +980,7 @@ static int8_t SCSI_Verify10(USBD_HandleTypeDef *pdev, uint8_t lun,
    }
 
    if (SCSI_CheckAddressRange(pdev, lun, hmsc->scsi_blk_addr,
-                              hmsc->scsi_blk_len) < 0) {
+                              hmsc->scsi_blk_len) != 0) {
       return -1; /* error */
    }
 
@@ -997,7 +997,7 @@ static int8_t SCSI_Verify10(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  blk_nbr: number of block to be processed
  * @retval status
  */
-static int8_t SCSI_CheckAddressRange(USBD_HandleTypeDef *pdev, uint8_t lun,
+static uint8_t SCSI_CheckAddressRange(USBD_HandleTypeDef *pdev, uint8_t lun,
                                      uint32_t blk_offset, uint32_t blk_nbr)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
@@ -1021,7 +1021,7 @@ static int8_t SCSI_CheckAddressRange(USBD_HandleTypeDef *pdev, uint8_t lun,
  * @param  lun: Logical unit number
  * @retval status
  */
-static int8_t SCSI_ProcessRead(USBD_HandleTypeDef *pdev, uint8_t lun)
+static uint8_t SCSI_ProcessRead(USBD_HandleTypeDef *pdev, uint8_t lun)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
        (USBD_MSC_BOT_HandleTypeDef *)pdev->pClassDataCmsit[pdev->classId];
@@ -1043,7 +1043,7 @@ static int8_t SCSI_ProcessRead(USBD_HandleTypeDef *pdev, uint8_t lun)
 
    if (((USBD_StorageTypeDef *)pdev->pUserData[pdev->classId])
            ->Read(lun, hmsc->bot_data, hmsc->scsi_blk_addr,
-                  (len / hmsc->scsi_blk_size)) < 0) {
+                  (len / hmsc->scsi_blk_size)) != 0) {
       SCSI_SenseCode(pdev, lun, HARDWARE_ERROR, UNRECOVERED_READ_ERROR);
       return -1;
    }
@@ -1069,7 +1069,7 @@ static int8_t SCSI_ProcessRead(USBD_HandleTypeDef *pdev, uint8_t lun)
  * @param  lun: Logical unit number
  * @retval status
  */
-static int8_t SCSI_ProcessWrite(USBD_HandleTypeDef *pdev, uint8_t lun)
+static uint8_t SCSI_ProcessWrite(USBD_HandleTypeDef *pdev, uint8_t lun)
 {
    USBD_MSC_BOT_HandleTypeDef *hmsc =
        (USBD_MSC_BOT_HandleTypeDef *)pdev->pClassDataCmsit[pdev->classId];
@@ -1091,7 +1091,7 @@ static int8_t SCSI_ProcessWrite(USBD_HandleTypeDef *pdev, uint8_t lun)
 
    if (((USBD_StorageTypeDef *)pdev->pUserData[pdev->classId])
            ->Write(lun, hmsc->bot_data, hmsc->scsi_blk_addr,
-                   (len / hmsc->scsi_blk_size)) < 0) {
+                   (len / hmsc->scsi_blk_size)) != 0) {
       SCSI_SenseCode(pdev, lun, HARDWARE_ERROR, WRITE_FAULT);
       return -1;
    }
@@ -1122,7 +1122,7 @@ static int8_t SCSI_ProcessWrite(USBD_HandleTypeDef *pdev, uint8_t lun)
  * @param  length: Data length
  * @retval status
  */
-static int8_t SCSI_UpdateBotData(USBD_MSC_BOT_HandleTypeDef *hmsc,
+static uint8_t SCSI_UpdateBotData(USBD_MSC_BOT_HandleTypeDef *hmsc,
                                  uint8_t *pBuff, uint16_t length)
 {
    uint16_t len = length;
