@@ -25,7 +25,6 @@ void PeriphCommonClock_Config(void);
 void setup_ddr(void);
 
 // HAL MSP
-int HAL_DDR_MspInit(ddr_type type);
 void HAL_UART_MspInit(UART_HandleTypeDef *huart);
 void HAL_UART_MspDeInit(UART_HandleTypeDef *huart);
 void HAL_SD_MspInit(SD_HandleTypeDef *hsd);

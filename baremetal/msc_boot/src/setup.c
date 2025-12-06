@@ -34,7 +34,7 @@ UART_HandleTypeDef huart4;
 SD_HandleTypeDef sd_handle;
 USBD_HandleTypeDef usbd_device;
 
-void error_msg(const char *msg)
+static void error_msg(const char *msg)
 {
    while (1) {
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
@@ -57,7 +57,7 @@ void Error_Handler(void)
    HAL_Delay(1000);
 }
 
-void assert_failed(uint8_t *file, uint32_t line)
+void assert_failed(int *file, int line)
 {
    printf("File %s line %d: assert failed.\r\n", file, line);
 
@@ -295,7 +295,7 @@ void setup_ddr(void)
       error_msg("DDR Init");
 }
 
-int HAL_DDR_MspInit(ddr_type type)
+int32_t HAL_DDR_MspInit(ddr_type type)
 {
    (void)type;
    return HAL_OK;

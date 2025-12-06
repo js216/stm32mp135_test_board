@@ -39,6 +39,8 @@ PCD_HandleTypeDef hpcd_handle;
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 
+void OTG_IRQHandler(void);
+
 void OTG_IRQHandler(void)
 {
    HAL_PCD_IRQHandler(&hpcd_handle);

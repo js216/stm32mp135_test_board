@@ -26,6 +26,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx_hal_def.h"
+#include "stm32mp13xx_hal_conf.h"
 #include "stm32mp13xx_hal_dma.h"
 #include <stdint.h>
 

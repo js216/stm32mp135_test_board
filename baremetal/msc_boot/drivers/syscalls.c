@@ -30,6 +30,27 @@
 #include <sys/times.h>
 #include <time.h>
 
+// this file
+int _execve(char *name, char **argv, char **env);
+int _fork(void);
+int _link(char *old, char *new);
+int _stat(char *file, struct stat *st);
+int _times(struct tms *buf);
+int _unlink(char *name);
+int _wait(int *status);
+int _open(char *path, int flags, ...);
+int _lseek(int file, int ptr, int dir);
+int _isatty(int file);
+int _fstat(int file, struct stat *st);
+int _close(int file);
+int _kill(int pid, int sig);
+int _getpid(void);
+void _init(void);
+void _exit(int status);
+void initialise_monitor_handles(void);
+int _read(int file, char *ptr, int len);
+int _write(int file, char *ptr, int len);
+
 // defined in setup.c
 extern int __io_putchar(int ch) __attribute__((weak));
 extern int __io_getchar(void) __attribute__((weak));
@@ -39,7 +60,7 @@ char *__env[1] = {0};
 char **environ = __env;
 
 /* Functions */
-void initialise_monitor_handles()
+void initialise_monitor_handles(void)
 {
 }
 

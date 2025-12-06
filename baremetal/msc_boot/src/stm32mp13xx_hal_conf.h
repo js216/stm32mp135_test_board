@@ -4,32 +4,33 @@
  * @file stm32mp13xx_hal_conf.h
  * @brief HAL configuration.
  * @author Jakob Kastelic
- * @copyright 2021 STMicroelectronics
+ * @copyright 2025 Stanford Research Systems, Inc.
  */
 
 #ifndef __STM32MP13xx_HAL_CONF_H
 #define __STM32MP13xx_HAL_CONF_H
 
-#include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_hal_def.h"
-#include <stdint.h>
-
-// Oscillator Values adaptation
-#define HSE_VALUE            ((uint32_t)24000000U)
-#define HSE_STARTUP_TIMEOUT  ((uint32_t)100U)
-#define HSI_VALUE            ((uint32_t)64000000U)
+#define HSE_VALUE            24000000U
+#define HSE_STARTUP_TIMEOUT  100U
+#define HSI_VALUE            64000000U
 #define LSI_VALUE            32000U
-#define LSE_VALUE            ((uint32_t)32768U)
-#define LSE_STARTUP_TIMEOUT  ((uint32_t)5000U)
+#define LSE_VALUE            32768U
+#define LSE_STARTUP_TIMEOUT  5000U
 #define CSI_VALUE            4000000U
 #define EXTERNAL_CLOCK_VALUE 12288000U
 
-// System Configuration
-#define TICK_INT_PRIORITY 0x0FU /*!< tick interrupt priority */
+#define TICK_INT_PRIORITY    0x0FU
+
+#define USE_RTOS             0
+#define USE_SD_TRANSCEIVER   0
+#define USBD_CLASS_BOS_ENABLED 0
+#define USE_HAL_PCD_REGISTER_CALLBACKS 0
+#define USE_HAL_UART_REGISTER_CALLBACKS 0
+#define USE_HAL_I2C_REGISTER_CALLBACKS 0
 
 #define assert_param(expr)                                                     \
-   ((expr) ? (void)0U : assert_failed((uint8_t *)__FILE__, __LINE__))
+   ((expr) ? (void)0U : assert_failed((int *)__FILE__, __LINE__))
 
-void assert_failed(uint8_t *file, uint32_t line);
+void assert_failed(int *file, int line);
 
 #endif /* __STM32MP13xx_HAL_CONF_H */

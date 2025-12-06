@@ -41,13 +41,7 @@
 
 #include "irq_ctrl.h"
 #include "stm32mp13xx.h"
-
-/*----------------------------------------------------------------------------
-  Handler prototypes declared elsewhere
- *----------------------------------------------------------------------------*/
-
-void OTG_IRQHandler(void);
-void SecurePhysicalTimer_IRQHandler(void);
+#include "stm32mp13xx_handlers.h"
 
 /*----------------------------------------------------------------------------
   Definitions
@@ -100,13 +94,6 @@ void fiq_handler(void)
    while (1)
       ;
 }
-
-
-/*----------------------------------------------------------------------------
-  Internal References
- *----------------------------------------------------------------------------*/
-void vectors(void) __attribute__((naked, section("RESET")));
-void reset_handler(void) __attribute__((naked, target("arm")));
 
 /*----------------------------------------------------------------------------
   SoC External Interrupt Handler

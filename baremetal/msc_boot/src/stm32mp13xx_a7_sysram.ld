@@ -60,7 +60,7 @@ SECTIONS
     . = __MEM_START__;
     .RESET . : {
         __TEXT_START__ = .;
-        *(.text.Reset_Handler)
+        *(.text.reset_handler)
         * (RESET)
         *(.text*)
         

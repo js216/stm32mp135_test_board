@@ -127,6 +127,7 @@ HAL_StatusTypeDef HAL_DDR_SR_Entry(uint32_t *zq0cr0_zdata);
 HAL_StatusTypeDef HAL_DDR_SR_Exit(void);
 HAL_StatusTypeDef HAL_DDR_SR_SetMode(HAL_DDR_SelfRefreshModeTypeDef mode);
 HAL_DDR_SelfRefreshModeTypeDef HAL_DDR_SR_ReadMode(void);
+int32_t HAL_DDR_MspInit(ddr_type type);
 
 /**
  * @}

@@ -27,6 +27,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32mp13xx.h"
+#include "stm32mp13xx_hal_conf.h"
 #if defined(USE_HAL_LEGACY)
 #include "Legacy/stm32_hal_legacy.h"
 #endif /* USE_HAL_LEGACY */

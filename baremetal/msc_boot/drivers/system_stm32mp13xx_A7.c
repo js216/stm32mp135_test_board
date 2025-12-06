@@ -49,6 +49,7 @@
 #include "irq_ctrl.h"
 #include "math.h"
 #include "stm32mp13xx.h"
+#include "stm32mp13xx_handlers.h"
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_conf.h"
 #include <stdint.h>
@@ -345,7 +346,7 @@ __irq __arm void irq_handler(void)
  * @retval None
  */
 #if defined(__GNUC__)
-void __attribute__((noinline)) ZeroBss(void)
+static void __attribute__((noinline)) ZeroBss(void)
 {
    __asm volatile("PUSH {R4-R11}          \n"
                   "LDR r2, =ZI_DATA       \n"
