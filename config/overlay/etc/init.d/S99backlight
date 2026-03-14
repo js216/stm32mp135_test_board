@@ -1,0 +1,3 @@
+if [ -w /sys/class/backlight/panel-backlight/bl_power ]; then
+    echo 0 > /sys/class/backlight/panel-backlight/bl_power
+fi

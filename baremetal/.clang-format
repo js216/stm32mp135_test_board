@@ -1,0 +1,11 @@
+BasedOnStyle: LLVM
+IndentWidth: 3
+UseTab: Never
+BreakBeforeBraces: Linux
+AllowShortFunctionsOnASingleLine: None
+AllowShortCaseLabelsOnASingleLine: true
+IndentCaseLabels: true
+AlignArrayOfStructures: Left
+AlignConsecutiveAssignments: true
+AlignConsecutiveMacros: true
+SeparateDefinitionBlocks: Always

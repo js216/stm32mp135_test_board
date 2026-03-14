@@ -1,0 +1,264 @@
+(kicad_sch
+	(version 20231120)
+	(generator "eeschema")
+	(generator_version "8.0")
+	(uuid "57c74b80-6e15-4e65-8905-229fd621af6c")
+	(paper "B")
+	(title_block
+		(title "${TITLE}")
+		(date "${ISSUE_DATE}")
+		(rev "${REVISION}")
+		(company "${COMPANY}")
+	)
+	(lib_symbols)
+	(wire
+		(pts
+			(xy 120.65 166.37) (xy 132.08 166.37)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "616188d4-8681-4374-93d2-4bc2e813f640")
+	)
+	(wire
+		(pts
+			(xy 120.65 73.66) (xy 132.08 73.66)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "aa92b628-3708-4ced-9e28-1770b16dac46")
+	)
+	(wire
+		(pts
+			(xy 120.65 111.76) (xy 132.08 111.76)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d44ffa71-06e2-454a-8db8-45ec6896957b")
+	)
+	(label "~{RESET}"
+		(at 132.08 166.37 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "8f9ea910-26d0-4269-aae4-5be72b3e0698")
+	)
+	(label "~{RESET}"
+		(at 132.08 73.66 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "95cc9f5d-51b3-4442-a22b-c0635c935f17")
+	)
+	(label "~{RESET}"
+		(at 132.08 111.76 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "bbc1831a-4708-4325-970c-9d8ce91a1086")
+	)
+	(sheet
+		(at 55.88 49.53)
+		(size 64.77 27.94)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "21c5c1ee-1557-44dc-8180-6d64945a60b1")
+		(property "Sheetname" "MPU Power & Clock"
+			(at 55.88 47.4534 0)
+			(effects
+				(font
+					(size 4 4)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "mpu_power_clock.kicad_sch"
+			(at 55.88 78.0546 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "~{RESET}" input
+			(at 120.65 73.66 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+			(uuid "46fd8999-7795-4d06-b63a-004b19a9adc5")
+		)
+		(instances
+			(project "mb"
+				(path "/57c74b80-6e15-4e65-8905-229fd621af6c"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 55.88 214.63)
+		(size 64.77 27.94)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "2ea9f45e-681a-41b9-b01f-eaa4046fa2d4")
+		(property "Sheetname" "MPU Extra Pins"
+			(at 55.88 212.5534 0)
+			(effects
+				(font
+					(size 4 4)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "mpu_dsp_fpga.kicad_sch"
+			(at 55.88 243.1546 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "mb"
+				(path "/57c74b80-6e15-4e65-8905-229fd621af6c"
+					(page "5")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 55.88 161.29)
+		(size 64.77 27.94)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "f184e547-9be5-43fa-a491-5df0f7f4952e")
+		(property "Sheetname" "MPU Interface"
+			(at 55.88 159.2134 0)
+			(effects
+				(font
+					(size 4 4)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "mpu_interface.kicad_sch"
+			(at 55.88 189.8146 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "~{RESET}" input
+			(at 120.65 166.37 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+			(uuid "5f674e41-4273-4b03-b251-dcd915a2db3c")
+		)
+		(instances
+			(project "mb"
+				(path "/57c74b80-6e15-4e65-8905-229fd621af6c"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 55.88 106.68)
+		(size 64.77 27.94)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "f849163e-ea58-445f-8ac4-89fd539c0457")
+		(property "Sheetname" "MPU Memory"
+			(at 55.88 104.6034 0)
+			(effects
+				(font
+					(size 4 4)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "mpu_memory.kicad_sch"
+			(at 55.88 135.2046 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(pin "~{RESET}" input
+			(at 120.65 111.76 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+			(uuid "35292d31-1f54-439f-9274-ee56bc554c04")
+		)
+		(instances
+			(project "mb"
+				(path "/57c74b80-6e15-4e65-8905-229fd621af6c"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+)

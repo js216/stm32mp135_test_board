@@ -1,0 +1,15 @@
+*.swp
+*.swo
+*.lck
+*.dat
+
+.mxproject
+.project
+.settings
+
+mb-backups
+fp-info-cache
+#auto_saved_files#
+
+build
+config/overlay/lib

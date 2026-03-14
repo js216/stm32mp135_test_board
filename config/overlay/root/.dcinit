@@ -1,0 +1,6 @@
+# set number of decimal places (precision) for floats
+10 k
+
+# sum up the whole stack and leave it empty
+[+z1>r]sr
+[lrxpc]sa
