@@ -42,6 +42,13 @@ projects are as follows:
 - `usb_test`: Checks that data can be loaded from the USB interface (enumerated
   as a "flash drive") to the DDR memory.
 
+- `qspi`: QUADSPI bring-up app.  Initialises the peripheral at ~1 MHz, then
+  loops issuing JEDEC-ID reads (`0x9F` + 3 bytes) so the bus can be verified
+  on a scope or logic analyser.  Designed for exercising QSPI wiring against
+  a user-supplied FPGA slave.  The QUADSPI peripheral is poked via raw
+  registers; HAL is used only for GPIO pin-mux, RCC clock muxing, and UART
+  output.
+
 All projects are completely independent of each other, and each directory
 contains all drivers and other files needed to build the firmware image by just
 calling `make`. This means that some of the source files are duplicated; so be
