@@ -178,21 +178,27 @@ fpga:uart_close
 - Check FPGA UART captured op=9f frames from the JEDEC loop
 
 Block 2 -- 1 MB read throughput across a sweep of SCLK frequencies,
-single-lane and quad-lane at each step.  Quadspi_ker_ck = 204 MHz on
-this project; SCLK = ker_ck / (prescaler + 1).  Sweeps prescaler in 5
-steps from the safe baseline (1.3 MHz) up to ~89 MHz (just below the
-chip's `Fmax_QSPI=133 MHz` spec edge),
+single-lane and quad-lane at each step.  PLL4 is retuned in
+`src/setup.c::sysclk_init` (M=3, N=82, P=1, integer mode) to give
+PLL4P = 332 MHz, and `perclk_init` routes the QSPI kernel clock to
+PLL4P.  SCLK = ker_ck / (prescaler + 1).  Sweeps prescaler in 6
+steps from ~1.63 MHz up to 166 MHz at presc=1 -- exactly the
+DS13483 Table 76 SDR Fmax_QSPI at VDD>=2.7 V, CL=20 pF.  CR.SSHIFT
+is enabled automatically when prescaler <= 3 (SCLK >= 83 MHz).
+PLL4 retuning leaves PLL4-derived ETH and SDMMC kernel clocks at
+non-standard values; this demo does not use either.
 running fast-read 0x0B (1-lane) and quad-output 0x6B (4-lane data) at
 each.  The slave is expected to return the incrementing pattern
 (bytes 0, 1, 2, ..., 255, 0, 1, ...) over the whole address space.
 
 | Prescaler | SCLK     |
 |-----------|----------|
-| 203       | ~1.31 MHz   |
-| 63        | ~4.16 MHz   |
-| 15        | ~16.6 MHz   |
-| 5         | ~44.4 MHz   |
-| 2         | ~88.7 MHz (max safe; 133 MHz chip spec edge requires SSHIFT) |
+| 203       | ~1.63 MHz |
+| 63        | ~5.19 MHz |
+| 15        | ~20.75 MHz |
+| 5         | ~55.33 MHz |
+| 2         | ~110.67 MHz |
+| 1         | ~166 MHz (`Fmax_QSPI`, DS13483 Tbl 76) |
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -231,14 +237,20 @@ mp135:uart_write data="b 1048576 0\r"
 mp135:uart_expect sentinel="1lane @ presc=2" timeout_ms=10000
 mp135:uart_write data="b 1048576 1\r"
 mp135:uart_expect sentinel="quad @ presc=2" timeout_ms=10000
+mp135:uart_write data="p 1\r"
+delay ms=100
+mp135:uart_write data="b 1048576 0\r"
+mp135:uart_expect sentinel="1lane @ presc=1" timeout_ms=10000
+mp135:uart_write data="b 1048576 1\r"
+mp135:uart_expect sentinel="quad @ presc=1" timeout_ms=10000
 mp135:uart_write data="p 203\r"
 delay ms=200
 mp135:uart_close
 fpga:uart_close
 ```
 
-- Check 1 MB scan completes 5 single-lane benches
-- Check 1 MB scan completes 5 quad-lane benches
+- Check 1 MB scan completes 6 single-lane benches
+- Check 1 MB scan completes 6 quad-lane benches
 - Check 1 MB scan all bytes match incrementing pattern at every step
 - Check quad-lane is faster than single-lane at every step
 - Check max quad-lane throughput at the highest scanned SCLK
@@ -1304,11 +1316,8 @@ fpga:uart_close
 - Check autopoll after page program reports >= 1 ms
 
 Block 38 -- quad-bench throughput floor at high SCLK.  Re-init at
-prescaler 1 (~102 MHz SCLK), run a 4 KB quad bench, parse the rate
-line, then restore safe speed.  At quad mode with 1L instruction +
-3-byte addr + dummy, the steady-state data rate is roughly
-SCLK*4/8 = ~51 MB/s theoretical; the 4 MB/s floor is comfortably
-above the 1 MHz safe-mode rate.
+prescaler 1 (peak SCLK on this PLL config), run a 4 KB quad bench,
+parse the rate line, then restore safe speed.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -1317,10 +1326,10 @@ fpga:uart_open
 mp135:uart_open
 mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
 delay ms=300
-mp135:uart_write data="p 2\r"
+mp135:uart_write data="p 1\r"
 delay ms=300
 mp135:uart_write data="b 4096 1\r"
-delay ms=2000
+mp135:uart_expect sentinel="quad @ presc=1" timeout_ms=5000
 mp135:uart_write data="p 203\r"
 delay ms=300
 mp135:uart_close

@@ -105,13 +105,19 @@ void sysclk_init(void)
    rcc_oscinitstructure.PLL3.PLLFRACV  = 0x1a04;
    rcc_oscinitstructure.PLL3.PLLMODE   = RCC_PLL_FRACTIONAL;
 
+   /* PLL4 retuned to drive QSPI kernel clock at 332 MHz (P out), so
+    * prescaler=1 yields the 166 MHz Fmax_QSPI per DS13483 Table 76.
+    * Integer mode: VCO = HSE/M x (N+1) = 24/3 x 83 = 664 MHz, in valid
+    * 800 MHz max range; PLL4P = VCO/(P+1) = 664/2 = 332 MHz.  ETH and
+    * SDMMC are not used by this demo so the prior PLL4 = 47/23.5 MHz
+    * settings are not load-bearing. */
    rcc_oscinitstructure.PLL4.PLLState  = RCC_PLL_ON;
    rcc_oscinitstructure.PLL4.PLLSource = RCC_PLL4SOURCE_HSE;
-   rcc_oscinitstructure.PLL4.PLLM      = 2;
-   rcc_oscinitstructure.PLL4.PLLN      = 50;
-   rcc_oscinitstructure.PLL4.PLLP      = 12;
-   rcc_oscinitstructure.PLL4.PLLQ      = 25;
-   rcc_oscinitstructure.PLL4.PLLR      = 6;
+   rcc_oscinitstructure.PLL4.PLLM      = 3;
+   rcc_oscinitstructure.PLL4.PLLN      = 82;
+   rcc_oscinitstructure.PLL4.PLLP      = 1;
+   rcc_oscinitstructure.PLL4.PLLQ      = 1;
+   rcc_oscinitstructure.PLL4.PLLR      = 1;
    rcc_oscinitstructure.PLL4.PLLRGE    = RCC_PLL4IFRANGE_1;
    rcc_oscinitstructure.PLL4.PLLFRACV  = 0;
    rcc_oscinitstructure.PLL4.PLLMODE   = RCC_PLL_INTEGER;
@@ -179,6 +185,15 @@ void perclk_init(void)
    pclk.Uart4ClockSelection  = RCC_UART4CLKSOURCE_HSI;
    if (HAL_RCCEx_PeriphCLKConfig(&pclk) != HAL_OK)
       ERROR("UART4");
+
+   /* QSPI ker_ck = PLL4P = 332 MHz (see PLL4 retune in sysclk_init).
+    * Default after reset is ACLK (= 180 MHz on this PLL), which only
+    * lets us reach 90 MHz at prescaler=1 -- short of the 166 MHz
+    * Fmax_QSPI spec.  Routing via PLL4 instead lifts the ceiling. */
+   pclk.PeriphClockSelection = RCC_PERIPHCLK_QSPI;
+   pclk.QspiClockSelection   = RCC_QSPICLKSOURCE_PLL4;
+   if (HAL_RCCEx_PeriphCLKConfig(&pclk) != HAL_OK)
+      ERROR("QSPI");
 }
 
 void etzpc_init(void)

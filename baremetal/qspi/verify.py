@@ -239,7 +239,8 @@ def check_throughput():
 
 _BENCH_RE = re.compile(
     rb"bench (\d+) B (1lane|quad)(?: @ presc=(\d+))? in (\d+) ms,"
-    rb"\s+(\d+) KB/s,\s+crc32=([0-9a-f]+),\s+firsterr=(-?\d+)")
+    rb"\s+(\d+) KB/s,\s+crc32=([0-9a-f]+),\s+firsterr=(-?\d+)"
+    rb"(?:\s+\(exp=([0-9a-f]+) got=([0-9a-f]+)\))?")
 
 
 def _bench_lines():
@@ -253,6 +254,8 @@ def _bench_lines():
             "kbps":     int(m.group(5)),
             "crc":      int(m.group(6), 16),
             "firsterr": int(m.group(7)),
+            "fe_exp":   int(m.group(8), 16) if m.group(8) else None,
+            "fe_got":   int(m.group(9), 16) if m.group(9) else None,
         })
     return out
 
@@ -264,8 +267,8 @@ def _bench_pick(length, mode):
     return None
 
 
-_PRESC_STEPS = [203, 63, 15, 5, 2]
-_PRESC_MHZ   = {203: 1.31, 63: 4.16, 15: 16.6, 5: 44.4, 2: 88.7}
+_PRESC_STEPS = [203, 63, 15, 5, 2, 1]
+_PRESC_MHZ   = {203: 1.63, 63: 5.19, 15: 20.75, 5: 55.33, 2: 110.67, 1: 166.0}
 
 
 def _bench_picks_by_presc(length, mode):
@@ -281,79 +284,77 @@ def _scan_runs_by_presc(mode):
     return {p: b for p, b in _bench_picks_by_presc(1048576, mode)}
 
 
-def check_1mb_scan_1lane_count():
-    runs = _scan_runs_by_presc("1lane")
-    missing = [p for p in _PRESC_STEPS if p not in runs]
+def _format_bench(b):
+    fe = b["firsterr"]
+    if fe < 0:
+        return (f"{b['ms']} ms, {b['kbps']} KB/s, firsterr=-1")
+    if b["fe_exp"] is not None and b["fe_got"] is not None:
+        return (f"{b['ms']} ms, {b['kbps']} KB/s, firsterr={fe} "
+                f"(exp={b['fe_exp']:02x} got={b['fe_got']:02x})")
+    return (f"{b['ms']} ms, {b['kbps']} KB/s, firsterr={fe}")
+
+
+def _scan_count_check(mode):
+    runs = _scan_runs_by_presc(mode)
     sys.stdout.write(
-        f"1lane benches captured: {len(runs)}/{len(_PRESC_STEPS)}\n")
+        f"{mode} benches captured: {len(runs)}/{len(_PRESC_STEPS)}\n")
     for p in _PRESC_STEPS:
         if p in runs:
-            b = runs[p]
-            sys.stdout.write(f"  presc={p:3d} ({_PRESC_MHZ[p]:.2f} MHz):"
-                             f" {b['ms']} ms, {b['kbps']} KB/s, "
-                             f"firsterr={b['firsterr']}\n")
+            sys.stdout.write(
+                f"  presc={p:3d} ({_PRESC_MHZ[p]:6.2f} MHz): "
+                f"{_format_bench(runs[p])}\n")
         else:
-            sys.stdout.write(f"  presc={p:3d}: MISSING\n")
-    if missing:
-        sys.stderr.write(f"missing 1lane prescalers: {missing}\n")
-        return False
-    return True
+            sys.stdout.write(
+                f"  presc={p:3d} ({_PRESC_MHZ[p]:6.2f} MHz): MISSING\n")
+    return all(p in runs for p in _PRESC_STEPS)
+
+
+def check_1mb_scan_1lane_count():
+    return _scan_count_check("1lane")
 
 
 def check_1mb_scan_quad_count():
-    runs = _scan_runs_by_presc("quad")
-    missing = [p for p in _PRESC_STEPS if p not in runs]
-    sys.stdout.write(
-        f"quad benches captured: {len(runs)}/{len(_PRESC_STEPS)}\n")
-    for p in _PRESC_STEPS:
-        if p in runs:
-            b = runs[p]
-            sys.stdout.write(f"  presc={p:3d} ({_PRESC_MHZ[p]:.2f} MHz):"
-                             f" {b['ms']} ms, {b['kbps']} KB/s, "
-                             f"firsterr={b['firsterr']}\n")
-        else:
-            sys.stdout.write(f"  presc={p:3d}: MISSING\n")
-    if missing:
-        sys.stderr.write(f"missing quad prescalers: {missing}\n")
-        return False
-    return True
+    return _scan_count_check("quad")
 
 
 def check_1mb_scan_all_incrementing():
     one = _scan_runs_by_presc("1lane")
     quad = _scan_runs_by_presc("quad")
+    missing = [p for p in _PRESC_STEPS if p not in one or p not in quad]
+    if missing:
+        sys.stdout.write(f"missing benches at presc={missing}\n")
+        return False
     bad = []
     for p in _PRESC_STEPS:
-        if p not in one or p not in quad:
-            sys.stderr.write(f"presc={p}: missing bench line\n")
-            return False
         if one[p]["firsterr"] != -1:
-            bad.append(("1lane", p, one[p]["firsterr"]))
+            bad.append(("1lane", p, one[p]))
         if quad[p]["firsterr"] != -1:
-            bad.append(("quad", p, quad[p]["firsterr"]))
+            bad.append(("quad", p, quad[p]))
     if bad:
-        sys.stderr.write("non-incrementing reads:\n")
-        for mode, p, fe in bad:
-            sys.stderr.write(f"  {mode} presc={p}: firsterr={fe}\n")
+        sys.stdout.write("non-incrementing reads:\n")
+        for mode, p, b in bad:
+            sys.stdout.write(f"  {mode} presc={p:3d}: {_format_bench(b)}\n")
         return False
-    sys.stdout.write("all 10 benches match incrementing pattern\n")
+    sys.stdout.write(
+        f"all {2 * len(_PRESC_STEPS)} benches match incrementing pattern\n")
     return True
 
 
 def check_1mb_scan_quad_faster():
     one = _scan_runs_by_presc("1lane")
     quad = _scan_runs_by_presc("quad")
+    missing = [p for p in _PRESC_STEPS if p not in one or p not in quad]
+    if missing:
+        sys.stdout.write(f"missing benches at presc={missing}\n")
+        return False
     bad = []
     for p in _PRESC_STEPS:
-        if p not in one or p not in quad:
-            sys.stderr.write(f"presc={p}: missing bench line\n")
-            return False
         if quad[p]["kbps"] <= one[p]["kbps"]:
             bad.append((p, one[p]["kbps"], quad[p]["kbps"]))
     if bad:
-        sys.stderr.write("quad not faster than 1lane:\n")
+        sys.stdout.write("quad not faster than 1lane:\n")
         for p, o, q in bad:
-            sys.stderr.write(f"  presc={p}: 1lane={o} KB/s quad={q} KB/s\n")
+            sys.stdout.write(f"  presc={p:3d}: 1lane={o} KB/s quad={q} KB/s\n")
         return False
     speedups = [quad[p]["kbps"] / max(1, one[p]["kbps"])
                 for p in _PRESC_STEPS]
@@ -1563,9 +1564,9 @@ DISPATCH = {
     "Check FPGA UART captured op=9f frames from the JEDEC loop":
         check_fpga_jedec_frames,
     # Block 2
-    "Check 1 MB scan completes 5 single-lane benches":
+    "Check 1 MB scan completes 6 single-lane benches":
         check_1mb_scan_1lane_count,
-    "Check 1 MB scan completes 5 quad-lane benches":
+    "Check 1 MB scan completes 6 quad-lane benches":
         check_1mb_scan_quad_count,
     "Check 1 MB scan all bytes match incrementing pattern at every step":
         check_1mb_scan_all_incrementing,

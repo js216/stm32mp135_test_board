@@ -293,6 +293,7 @@ HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
 HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t dummy_cycles, uint32_t len,
                                   uint32_t *crc_out, uint32_t *first_err_out,
+                                  uint8_t  *first_err_got_out,
                                   uint32_t *elapsed_ms_out)
 {
    if (!initialised || len == 0)
@@ -325,6 +326,7 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
    uint32_t crc                  = 0xFFFFFFFFUL;
    uint32_t first_err            = 0xFFFFFFFFUL;
+   uint8_t  first_err_got        = 0U;
    const uint32_t t0             = HAL_GetTick();
 
    /* Drain in 32-bit words while at least 4 bytes are in the FIFO.
@@ -350,8 +352,10 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
          for (int j = 0; j < 8; j++)
             crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
          const uint8_t exp = (uint8_t)((i + (uint32_t)k) & 0xFFU);
-         if (b != exp && first_err == 0xFFFFFFFFUL)
-            first_err = i + (uint32_t)k;
+         if (b != exp && first_err == 0xFFFFFFFFUL) {
+            first_err     = i + (uint32_t)k;
+            first_err_got = b;
+         }
       }
       i += 4U;
    }
@@ -373,8 +377,10 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
       for (int j = 0; j < 8; j++)
          crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
       const uint8_t exp = (uint8_t)(i & 0xFFU);
-      if (b != exp && first_err == 0xFFFFFFFFUL)
-         first_err = i;
+      if (b != exp && first_err == 0xFFFFFFFFUL) {
+         first_err     = i;
+         first_err_got = b;
+      }
       i++;
    }
 
@@ -392,8 +398,9 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
       }
    }
 
-   *crc_out        = crc ^ 0xFFFFFFFFUL;
-   *first_err_out  = first_err;
-   *elapsed_ms_out = HAL_GetTick() - t0;
+   *crc_out           = crc ^ 0xFFFFFFFFUL;
+   *first_err_out     = first_err;
+   *first_err_got_out = first_err_got;
+   *elapsed_ms_out    = HAL_GetTick() - t0;
    return HAL_OK;
 }

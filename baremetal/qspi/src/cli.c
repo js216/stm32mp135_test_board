@@ -392,8 +392,9 @@ static void cmd_bench(int argc, char **argv)
    const uint8_t dummy   = 8U;
 
    uint32_t crc = 0, firsterr = 0, dt = 0;
+   uint8_t  fe_got = 0;
    HAL_StatusTypeDef s = qspi_bench_read(opcode, dl, dummy, len,
-                                         &crc, &firsterr, &dt);
+                                         &crc, &firsterr, &fe_got, &dt);
    if (s != HAL_OK) {
       my_printf("ERR bench (%d)\r\n", (int)s);
       busy_flag = false;
@@ -406,14 +407,26 @@ static void cmd_bench(int argc, char **argv)
       kbps = (len * 1000U) / (dt * 1024U);
    else
       kbps = ((len / 1024U) * 1000U) / dt;
-   my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu KB/s, "
-             "crc32=%08lx, firsterr=%ld\r\n",
-             (unsigned long)len,
-             quad ? "quad" : "1lane",
-             (unsigned long)qspi_get_prescaler(),
-             (unsigned long)dt, (unsigned long)kbps,
-             (unsigned long)crc,
-             firsterr == 0xFFFFFFFFU ? -1L : (long)firsterr);
+   if (firsterr == 0xFFFFFFFFU) {
+      my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu KB/s, "
+                "crc32=%08lx, firsterr=-1\r\n",
+                (unsigned long)len,
+                quad ? "quad" : "1lane",
+                (unsigned long)qspi_get_prescaler(),
+                (unsigned long)dt, (unsigned long)kbps,
+                (unsigned long)crc);
+   } else {
+      const uint8_t exp = (uint8_t)(firsterr & 0xFFU);
+      my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu KB/s, "
+                "crc32=%08lx, firsterr=%lu (exp=%02x got=%02x)\r\n",
+                (unsigned long)len,
+                quad ? "quad" : "1lane",
+                (unsigned long)qspi_get_prescaler(),
+                (unsigned long)dt, (unsigned long)kbps,
+                (unsigned long)crc,
+                (unsigned long)firsterr,
+                (unsigned)exp, (unsigned)fe_got);
+   }
    busy_flag = false;
 }
 
