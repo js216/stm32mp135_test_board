@@ -159,7 +159,14 @@ conformance gap that distinguishes "read-only flash" from
 
 Block 1 -- firmware alive, JEDEC loop, throughput.
 
+The first block reloads `qspi.bin` onto the FPGA so this suite is
+order-independent of any other suite (e.g. the FPGA repo's `spi`
+chapter, which leaves `spi_*.bin` programmed).  Subsequent blocks
+rely on the persistence of the FPGA state across `bench_mcu:reset_dut`
+within one `run_md.py` invocation.
+
 ```
+fpga:program bin=@qspi.bin
 fpga:uart_open
 mp135:uart_open
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
