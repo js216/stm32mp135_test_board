@@ -128,228 +128,903 @@ Type a single-letter command (followed by space-separated decimal or
 | `x`  | Abort current xfer + drain RX FIFO  |
 | `h`  | Print this help                     |
 
+#### Linux compatibility
+
+When every block of `### Automated Test` (below) passes, the slave is
+functionally compatible with Linux's `m25p80` / `spi-nor` driver and
+can be mounted as an MTD device with no manual quirks.  A device-tree
+fragment of the form
+
+    &qspi {
+        flash@0 {
+            compatible = "jedec,spi-nor";
+            reg = <0>;
+            spi-max-frequency = <50000000>;
+        };
+    };
+
+is sufficient -- no `m25p,nonjedec` workarounds, no fixed-flash-info
+table entries, no quirks list.  The composite "Linux readiness" bullet
+fails if any JEDEC / SFDP / WEL / WIP / erase / program / read-parity
+/ QE / page-wrap / reset sub-check fails.
+
+The suite also asserts the slave's framing from the FPGA side: every
+block opens `fpga:uart_open` alongside the MP135 UART, and parses the
+slave's `op=<hh> bytes=<K> mosi_crc=<8hex>` frame log.  Per-frame
+checks compare the slave's reported byte count and MOSI CRC-32 (IEEE
+802.3 reflected, init / xorout `0xFFFFFFFF`, polynomial `0xEDB88320`)
+against what the host actually emitted on the wire.  A passing run
+means framing, opcode decode, byte counting, and the CRC engine are
+all correct end-to-end.
+
 ### Automated Test
+
+The suite enforces real NOR-flash semantics on the QSPI slave: each
+fenced block exercises an opcode sequence and the bullets assert what
+the slave actually returned, not just that the host emitted the right
+CLI command.  Most blocks are expected to FAIL on the bench-FPGA stub
+that only echoes a fixed JEDEC ID; they will pass on a slave that
+implements the JEDEC and JESD216 contracts.
+
+Each block reflashes the MP135 via DFU and resets it.  The flash slave
+itself is not power-cycled between blocks, so block N+1 sees whatever
+state block N left behind.  After the JEDEC plausibility block, every
+non-chip-erase block starts by chip-erasing to a known all-`ff` state.
+
+Block 1 -- firmware alive, JEDEC loop, throughput.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:list
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
 mp135:uart_open
 mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
 delay ms=2500
 mp135:uart_close
+fpga:uart_close
 ```
 
 - Check `test_serv` had no errors
 - Check JEDEC ID line repeats (loop runs at least 3 times)
 - Check QSPI throughput is at least 1000 reads/sec
+- Check JEDEC ID is plausible (not all zero, not all ff, capacity > 0)
+- Check JEDEC manufacturer is in m25p80 bank-1 list
+- Check JEDEC capacity exponent indicates >= 128 KB
+- Check FPGA UART captured op=9f frames from the JEDEC loop
+
+Block 2 -- SFDP signature, header, BFPT pointer, and BFPT contents.
+Read enough SFDP bytes to cover the header (8 B), first parameter
+header (8 B at offset 8), and a generous BFPT slab.  `r` caps at 1024
+bytes per call, so use multiple ranged SFDP reads from offsets 0x00,
+0x100, 0x200, 0x300 to gather up to 1 KB each chunk; the verifier
+will pick the right slice for each parsed pointer.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
 mp135:uart_open
-delay ms=500
-mp135:uart_write data="h\r"
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
 delay ms=300
 mp135:uart_write data="i\r"
 delay ms=200
-mp135:uart_write data="?\r"
-delay ms=200
+mp135:uart_write data="f 0x000 256\r"
+delay ms=500
+mp135:uart_write data="f 0x100 256\r"
+delay ms=500
+mp135:uart_write data="f 0x200 256\r"
+delay ms=500
+mp135:uart_write data="f 0x300 256\r"
+delay ms=500
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check SFDP signature is 53 46 44 50
+- Check SFDP first parameter header is BFPT (id-lsb 0x00)
+- Check SFDP BFPT advertises 4 KB erase with opcode 0x20
+- Check SFDP BFPT density matches JEDEC capacity
+- Check SFDP BFPT has a sane QER field
+
+Block 3 -- WEL toggles correctly via WREN/WRDI.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
 mp135:uart_write data="s 0x05\r"
 delay ms=200
 mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="s 0x05\r"
+delay ms=200
+mp135:uart_write data="e 0x04\r"
+delay ms=200
+mp135:uart_write data="s 0x05\r"
 delay ms=300
 mp135:uart_close
+fpga:uart_close
 ```
 
-- Check help output present
-- Check JEDEC response pattern
-- Check busy status query
-- Check status read
-- Check WREN op response
+- Check WEL bit follows WREN and WRDI
+
+Block 4 -- sector erase + read-back yields 0xff.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
 mp135:uart_open
-delay ms=500
-mp135:uart_write data="r 0 16\r"
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
 delay ms=300
-mp135:uart_write data="F 0 16\r"
-delay ms=300
-mp135:uart_write data="q 0 16\r"
-delay ms=300
-mp135:uart_write data="X 0 16\r"
-delay ms=400
-mp135:uart_write data="2 0 16\r"
-delay ms=300
-mp135:uart_write data="3 0 16\r"
-delay ms=400
-mp135:uart_close
-```
-
-- Check 1-lane read response
-- Check fast read response
-- Check quad-output read response
-- Check quad-IO read response
-- Check dual-output read response
-- Check dual-IO read response
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
 mp135:uart_write data="e 0x06\r"
 delay ms=200
-mp135:uart_write data="W 0x02\r"
+mp135:uart_write data="S 0x0\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=600
+mp135:uart_write data="r 0 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check sector erased region reads all ff
+
+Block 5 -- page program + read-back yields the i&0xff pattern.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
 delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
 mp135:uart_write data="w 0 16\r"
-delay ms=400
-mp135:uart_write data="Q 0 16\r"
-delay ms=400
-mp135:uart_write data="r 0 16\r"
-delay ms=400
-mp135:uart_write data="S 0\r"
-delay ms=400
-mp135:uart_write data="B 0x10000\r"
-delay ms=400
-mp135:uart_close
-```
-
-- Check write op response
-- Check quad write op response
-- Check sector erase response
-- Check block erase response
-- Check WRSR response
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
-mp135:uart_write data="f 0 16\r"
-delay ms=400
-mp135:uart_close
-```
-
-- Check SFDP response
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
-mp135:uart_write data="M 0 16\r"
-delay ms=500
-mp135:uart_close
-```
-
-- Check memory-mapped response
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
-mp135:uart_write data="b 256 0\r"
-delay ms=500
-mp135:uart_write data="b 256 1\r"
-delay ms=500
-mp135:uart_close
-```
-
-- Check bench 1-lane output present
-- Check bench quad output present
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
-mp135:uart_write data="D\r"
-delay ms=200
-mp135:uart_write data="d\r"
-delay ms=200
-mp135:uart_write data="R\r"
 delay ms=300
-mp135:uart_close
-```
-
-- Check DPD response
-- Check release DPD response
-- Check soft reset response
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
-mp135:uart_write data="4 1\r"
-delay ms=200
-mp135:uart_write data="4 0\r"
-delay ms=300
-mp135:uart_close
-```
-
-- Check 4-byte enter response
-- Check 4-byte exit response
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
-mp135:uart_write data="g 0x3f\r"
-delay ms=300
-mp135:uart_write data="g 0\r"
-delay ms=300
-mp135:uart_close
-```
-
-- Check gpio set high response
-- Check gpio set low response
-
-```
-bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
-dfu:flash_layout layout=@flash.tsv no_reconnect=true
-mp135:uart_open
-delay ms=500
-mp135:uart_write data="e 0x06\r"
-delay ms=200
 mp135:uart_write data="P 0x05 0x01 0x00\r"
 delay ms=500
+mp135:uart_write data="r 0 16\r"
+delay ms=400
 mp135:uart_close
+fpga:uart_close
 ```
 
-- Check autopoll response
+- Check page program read-back equals i and 0xff pattern
+
+Block 6 -- quad-output read returns same data as 1-lane read.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
 mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x100 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
 delay ms=500
+mp135:uart_write data="r 0x100 16\r"
+delay ms=400
+mp135:uart_write data="q 0x100 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check quad-output read matches 1-lane read at 0x100
+
+Block 7 -- quad-I/O read returns same data as 1-lane read.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x100 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x100 16\r"
+delay ms=400
+mp135:uart_write data="X 0x100 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check quad-IO read matches 1-lane read at 0x100
+
+Block 8 -- quad-input PP + read-back yields the 0xc0+i&0xf pattern.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="Q 0x200 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x200 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check quad-input PP read-back equals 0xc0+i&0xf pattern
+
+Block 9 -- block erase 64K + read-back yields 0xff.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="B 0x10000\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=1500
+mp135:uart_write data="r 0x10000 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check block erased region reads all ff
+
+Block 10 -- memory-mapped read matches 1-lane read.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x300 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x300 16\r"
+delay ms=400
+mp135:uart_write data="M 0x300 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check memory-mapped read matches 1-lane read at 0x300
+
+Block 11 -- autopoll reports a non-trivial wait after a real erase.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="S 0\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=1500
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check autopoll after sector erase reports non-zero ms
+
+Block 12 -- chip erase + spot reads everywhere yield 0xff.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="C\r"
+delay ms=200
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=2000
+mp135:uart_write data="r 0 16\r"
+delay ms=300
+mp135:uart_write data="r 0x10000 16\r"
+delay ms=300
+mp135:uart_write data="r 0x100000 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check chip erase spot 0x0 reads all ff
+- Check chip erase spot 0x10000 reads all ff
+- Check chip erase spot 0x100000 reads all ff
+
+Block 13 -- DPD silences RDID, release restores it.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=200
+mp135:uart_write data="D\r"
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=300
+mp135:uart_write data="d\r"
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check DPD silences JEDEC ID and release restores it
+
+Block 14 -- soft reset clears WEL.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="R\r"
+delay ms=400
+mp135:uart_write data="s 0x05\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check soft reset clears WEL bit
+
+Block 15 -- dual-output and dual-I/O reads match 1-lane read.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x400 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x400 16\r"
+delay ms=400
+mp135:uart_write data="2 0x400 16\r"
+delay ms=400
+mp135:uart_write data="3 0x400 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check dual-output read matches 1-lane read at 0x400
+- Check dual-IO read matches 1-lane read at 0x400
+
+Block 16 -- fast read 0x0B matches 1-lane read; autopoll TIMEOUT path
+fires when the match condition is unreachable (WIP=1 forever).
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x500 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x500 16\r"
+delay ms=400
+mp135:uart_write data="F 0x500 16\r"
+delay ms=400
 mp135:uart_write data="P 0x05 0x01 0x01\r"
 delay ms=6000
 mp135:uart_close
+fpga:uart_close
 ```
 
-- Check autopoll timeout response
+- Check fast read matches 1-lane read at 0x500
+- Check autopoll TIMEOUT response
+
+Block 17 -- QE bit lifecycle: setting QE in SR makes quad reads work.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
 mp135:uart_open
-delay ms=500
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
 mp135:uart_write data="C\r"
-delay ms=200
+delay ms=150
 mp135:uart_write data="C\r"
 delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="W 0x40\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x600 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x600 16\r"
+delay ms=400
+mp135:uart_write data="q 0x600 16\r"
+delay ms=400
 mp135:uart_close
+fpga:uart_close
 ```
 
-- Check chip erase confirms
-- Check chip erase executed
+- Check QE bit set then quad-output read matches 1-lane read
+
+Block 18 -- page-program boundary wrap at offset 0xF8 across 0x100.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="Q 0x100 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0xF8 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0xF0 32\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check page-program does not cross page boundary at 0x100
+
+Block 19 -- sector erase granularity: only the first 4K is erased.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x0 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="Q 0x1000 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="S 0x0\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=1500
+mp135:uart_write data="r 0x0 16\r"
+delay ms=400
+mp135:uart_write data="r 0x1000 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check sector erase preserves adjacent 4 KB sector
+
+Block 20 -- read-opcode parity: every read path returns the same bytes.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="W 0x40\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x700 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x700 16\r"
+delay ms=400
+mp135:uart_write data="F 0x700 16\r"
+delay ms=400
+mp135:uart_write data="q 0x700 16\r"
+delay ms=400
+mp135:uart_write data="2 0x700 16\r"
+delay ms=400
+mp135:uart_write data="3 0x700 16\r"
+delay ms=400
+mp135:uart_write data="X 0x700 16\r"
+delay ms=400
+mp135:uart_write data="M 0x700 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check all read opcodes return identical bytes at 0x700
+
+Block 21 -- WIP during erase, then real wait time.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="S 0\r"
+mp135:uart_write data="s 0x05\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=2000
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check WIP is 1 immediately after sector erase
+- Check autopoll after sector erase reports >= 10 ms
+
+Block 22 -- WRSR not persistent across soft reset.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="W 0xBC\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="s 0x05\r"
+delay ms=300
+mp135:uart_write data="R\r"
+delay ms=500
+mp135:uart_write data="s 0x05\r"
+delay ms=300
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check WRSR value does not survive soft reset
+
+Block 23 -- write without WREN is a no-op.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="r 0x800 16\r"
+delay ms=400
+mp135:uart_write data="R\r"
+delay ms=400
+mp135:uart_write data="w 0x800 16\r"
+delay ms=400
+mp135:uart_write data="r 0x800 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check page program without WREN is a no-op
+
+Block 24 -- capacity round-trip: chip is addressable up to its declared
+size.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=200
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=2000
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x0 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="Q 0x40 16\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0x0 16\r"
+delay ms=400
+mp135:uart_write data="r 0x40 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check distinct programmed regions are independently addressable
+- Check Linux readiness composite
+
+Block 25 -- FPGA frame length matches host on JEDEC and PP.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=200
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="w 0 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA decoded op=9f frame length is 4
+- Check FPGA decoded op=06 frame length is 1
+- Check FPGA decoded op=02 frame length is 20
+
+Block 26 -- FPGA MOSI CRC round-trip on a deterministic write.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="w 0 16\r"
+delay ms=500
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA op=06 MOSI CRC matches host CRC32 of opcode-only frame
+- Check FPGA op=02 MOSI CRC matches host CRC32 of opcode addr data
+
+Block 27 -- back-to-back JEDEC reads framed independently.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\ri\ri\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA logs three op=9f frames in rapid succession
+- Check FPGA op=9f frames have consistent length and CRC
+
+Block 28 -- unsupported opcode framed without crashing the slave.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x77\r"
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=300
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA logs op=77 frame for unsupported opcode
+- Check FPGA still answers op=9f after unsupported opcode
+
+Block 29 -- bench long-burst frame count.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="b 1024 0\r"
+delay ms=2000
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA logs at least one op=03 frame from bench burst
 
 ### Author
 
