@@ -422,13 +422,13 @@ def check_mdma_16mb_completes():
     return True
 
 
-def check_mdma_16mb_throughput_50mbps():
+def check_mdma_16mb_throughput_200mbps():
     b = _mdma_pick(16 * 1024 * 1024)
     if b is None:
         sys.stdout.write("no mdma 16777216 B line in UART capture\n")
         return False
     sys.stdout.write(f"{_format_mdma(b)}\n")
-    return b["mbps_x10"] >= 500  # 50.0 Mbps
+    return b["mbps_x10"] >= 2000  # 200.0 Mbps -- presc=3, datasheet max SCLK
 
 
 def check_mdma_16mb_integrity():
@@ -1825,8 +1825,8 @@ DISPATCH = {
         check_1mb_scan_max_quad_rate,
     # Block 12 -- MDMA 16 MB streaming read into DDR
     "Check 16 MB MDMA read completes": check_mdma_16mb_completes,
-    "Check 16 MB MDMA throughput at least 50 Mbps":
-        check_mdma_16mb_throughput_50mbps,
+    "Check 16 MB MDMA throughput at least 200 Mbps (datasheet-max SCLK)":
+        check_mdma_16mb_throughput_200mbps,
     "Check 16 MB MDMA data integrity into DDR": check_mdma_16mb_integrity,
     # Block 3
     "Check SFDP signature is 53 46 44 50": check_sfdp_signature,

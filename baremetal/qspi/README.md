@@ -493,33 +493,38 @@ fpga:uart_close
 - Check quad-lane is faster than single-lane at every step
 - Check max quad-lane throughput at the highest scanned SCLK
 
-Block 12 -- MDMA streaming read of 16 MB into DDR.  Exceeds SRAM
-(160 KB) by 100x, so this transfer is impossible without offloading the
-FIFO drain to MDMA.  MDMA channel 0 is programmed with TSEL=0x1A
-(QUADSPI FIFO threshold), source = `&QUADSPI->DR` (fixed), destination
-= `0xC0000000` in DDR (incrementing, 16-beat write bursts).  The
-firmware then walks the DDR buffer end-to-end to compute CRC32 and the
-first index that violates the `i & 0xFF` incrementing pattern.
+Block 12 -- MDMA streaming read of 16 MB into DDR at the datasheet
+maximum SCLK (DS13483 Rev 5 page 170, Table 76 -- Fck1 = 166 MHz max
+in SDR mode with 2.7 V <= VDD < 3.6 V and CL = 20 pF; presc=3 with
+the PLL4 retune).  Exceeds SRAM (160 KB) by 100x; transfer impossible without
+offloading the FIFO drain to MDMA.  MDMA channel 0 is programmed with
+TSEL=0x1A (QUADSPI FIFO threshold), source = `&QUADSPI->DR` (fixed),
+destination = `0xC0000000` in DDR (incrementing, 16-beat write bursts).
+After the transfer the firmware walks the DDR buffer end-to-end to
+compute CRC32 and the first index that violates the `i & 0xFF`
+incrementing pattern.
+
+Empirically the FPGA stub keeps up at presc=3 (~260 Mbps observed
+quad), saturates at presc=2 (~221 MHz wire, over-spec for the MP135
+datasheet but in spec only with VDD = 3.0-3.6 V and CL = 20 pF).
 
 ```
 fpga:program bin=@qspi.bin
+mp135:uart_open
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
-fpga:uart_open
-mp135:uart_open
 mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
 delay ms=200
-mp135:uart_write data="p 15\r"
-delay ms=100
+mp135:uart_write data="p 3\r"
+delay ms=200
 mp135:uart_write data="m 16777216 1 1\r"
 mp135:uart_expect sentinel="mdma 16777216 B" timeout_ms=60000
 delay ms=300
 mp135:uart_close
-fpga:uart_close
 ```
 
 - Check 16 MB MDMA read completes
-- Check 16 MB MDMA throughput at least 50 Mbps
+- Check 16 MB MDMA throughput at least 200 Mbps (datasheet-max SCLK)
 - Check 16 MB MDMA data integrity into DDR
 - Check `test_serv` had no errors
 
