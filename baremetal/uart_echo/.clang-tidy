@@ -1,0 +1,29 @@
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  hicpp-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -*-braces-around-statements,
+  -readability-identifier-length,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -*-non-const-parameter,
+  -bugprone-easily-swappable-parameters,
+  -*-magic-numbers,
+  -*-macro-to-enum,
+  -performance-no-int-to-ptr,
+  -clang-analyzer-core.FixedAddressDereference,
+  -hicpp-no-assembler
+
+WarningsAsErrors: '*'
+
+CheckOptions:
+  - key:             readability-identifier-naming.VariableCase
+    value:           lower_case
+  - key:             readability-identifier-naming.FunctionCase
+    value:           lower_case
