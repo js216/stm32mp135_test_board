@@ -159,11 +159,11 @@ conformance gap that distinguishes "read-only flash" from
 
 Block 1 -- firmware alive, JEDEC loop, throughput.
 
-The first block reloads `qspi.bin` onto the FPGA so this suite is
+Every block opens with `fpga:program bin=@qspi.bin` so this suite is
 order-independent of any other suite (e.g. the FPGA repo's `spi`
-chapter, which leaves `spi_*.bin` programmed).  Subsequent blocks
-rely on the persistence of the FPGA state across `bench_mcu:reset_dut`
-within one `run_md.py` invocation.
+chapter, which leaves `spi_*.bin` programmed).  test_serv only
+serializes per-device, so a concurrent `run_md.py` invocation could
+otherwise interleave its `fpga:program` between our blocks.
 
 ```
 fpga:program bin=@qspi.bin
@@ -198,6 +198,7 @@ the three failure hypotheses (poll-loop hang vs ERR-bench return vs
 CPU fault) by checking which BENCHDBG markers reached the host.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -253,6 +254,7 @@ when every individual block (3-10) plus presc=2/1 all pass.
 Block 3 -- 1 MB 1-lane bench at presc=203 (~3.25 MHz wire).
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -275,6 +277,7 @@ fpga:uart_close
 Block 4 -- 1 MB quad bench at presc=203.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -297,6 +300,7 @@ fpga:uart_close
 Block 5 -- 1 MB 1-lane bench at presc=63 (~10.4 MHz wire).
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -319,6 +323,7 @@ fpga:uart_close
 Block 6 -- 1 MB quad bench at presc=63.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -341,6 +346,7 @@ fpga:uart_close
 Block 7 -- 1 MB 1-lane bench at presc=15 (~41.5 MHz wire).
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -363,6 +369,7 @@ fpga:uart_close
 Block 8 -- 1 MB quad bench at presc=15.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -385,6 +392,7 @@ fpga:uart_close
 Block 9 -- 1 MB 1-lane bench at presc=5 (~110.7 MHz wire).
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -407,6 +415,7 @@ fpga:uart_close
 Block 10 -- 1 MB quad bench at presc=5.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -429,6 +438,7 @@ fpga:uart_close
 Block 11 -- combined 1 MB sweep across all 6 prescalers x 2 modes.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -491,6 +501,7 @@ bytes per call, so use multiple ranged SFDP reads from offsets 0x00,
 will pick the right slice for each parsed pointer.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -520,6 +531,7 @@ fpga:uart_close
 Block 5 -- WEL toggles correctly via WREN/WRDI.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -545,6 +557,7 @@ fpga:uart_close
 Block 6 -- sector erase + read-back yields 0xff.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -568,6 +581,7 @@ fpga:uart_close
 Block 7 -- page program + read-back yields the i&0xff pattern.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -599,6 +613,7 @@ fpga:uart_close
 Block 8 -- quad-output read returns same data as 1-lane read.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -632,6 +647,7 @@ fpga:uart_close
 Block 9 -- quad-I/O read returns same data as 1-lane read.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -665,6 +681,7 @@ fpga:uart_close
 Block 10 -- quad-input PP + read-back yields the 0xc0+i&0xf pattern.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -696,6 +713,7 @@ fpga:uart_close
 Block 11 -- block erase 64K + read-back yields 0xff.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -719,6 +737,7 @@ fpga:uart_close
 Block 12 -- memory-mapped read matches 1-lane read.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -752,6 +771,7 @@ fpga:uart_close
 Block 13 -- autopoll reports a non-trivial wait after a real erase.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -773,6 +793,7 @@ fpga:uart_close
 Block 14 -- chip erase + spot reads everywhere yield 0xff.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -804,6 +825,7 @@ fpga:uart_close
 Block 15 -- DPD silences RDID, release restores it.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -829,6 +851,7 @@ fpga:uart_close
 Block 16 -- soft reset clears WEL.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -850,6 +873,7 @@ fpga:uart_close
 Block 17 -- dual-output and dual-I/O reads match 1-lane read.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -887,6 +911,7 @@ Block 18 -- fast read 0x0B matches 1-lane read; autopoll TIMEOUT path
 fires when the match condition is unreachable (WIP=1 forever).
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -923,6 +948,7 @@ fpga:uart_close
 Block 19 -- QE bit lifecycle: setting QE in SR makes quad reads work.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -962,6 +988,7 @@ fpga:uart_close
 Block 20 -- page-program boundary wrap at offset 0xF8 across 0x100.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -999,6 +1026,7 @@ fpga:uart_close
 Block 21 -- sector erase granularity: only the first 4K is erased.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1044,6 +1072,7 @@ fpga:uart_close
 Block 22 -- read-opcode parity: every read path returns the same bytes.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1093,6 +1122,7 @@ fpga:uart_close
 Block 23 -- WIP during erase, then real wait time.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1116,6 +1146,7 @@ fpga:uart_close
 Block 24 -- WRSR not persistent across soft reset.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1143,6 +1174,7 @@ fpga:uart_close
 Block 25 -- write without WREN is a no-op.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1175,6 +1207,7 @@ Block 26 -- capacity round-trip: chip is addressable up to its declared
 size.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1217,6 +1250,7 @@ fpga:uart_close
 Block 27 -- FPGA frame length matches host on JEDEC and PP.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1242,6 +1276,7 @@ fpga:uart_close
 Block 28 -- FPGA MOSI CRC round-trip on a deterministic write.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1264,6 +1299,7 @@ fpga:uart_close
 Block 29 -- back-to-back JEDEC reads framed independently.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1282,6 +1318,7 @@ fpga:uart_close
 Block 30 -- unsupported opcode framed without crashing the slave.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1302,6 +1339,7 @@ fpga:uart_close
 Block 31 -- bench long-burst frame count.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1330,6 +1368,7 @@ op=bb bytes=10 crc=crc32([0xBB,0,0,0,0xA0]);
 op=eb bytes=6 crc=crc32([0xEB,0,0,0,0xA0]).
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1365,6 +1404,7 @@ should see WEL=1 after WREN, WEL=1 (with WIP=1) during PP, and
 WEL=0 (with WIP=0) once autopoll exits.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1402,6 +1442,7 @@ the slave's capture state cleanly.  No bogus frame should be
 emitted, and a follow-up `i` must produce a normal op=9f frame.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1447,6 +1488,7 @@ Pre-program 0x00..0x0F with 0xAA, then PP 8 bytes starting at
 write lands at 0x0F and bytes 1..7 wrap back to 0x00..0x06.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1485,6 +1527,7 @@ Block 36 -- sustained back-to-back JEDEC stress.  100 `i` keystrokes
 fire as one UART burst; the slave must frame each one independently.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1503,6 +1546,7 @@ fpga:uart_close
 Block 37 -- mixed-opcode burst interleaves WREN and JEDEC.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1523,6 +1567,7 @@ drives WIP=1 throughout the PP cycle (~ms range); a stubbed slave
 that completes instantly fails this assertion.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
@@ -1548,6 +1593,7 @@ prescaler 1 (peak SCLK on this PLL config), run a 4 KB quad bench,
 parse the rate line, then restore safe speed.
 
 ```
+fpga:program bin=@qspi.bin
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
 dfu:flash_layout layout=@flash.tsv no_reconnect=true
 fpga:uart_open
