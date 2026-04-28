@@ -12,6 +12,7 @@
 
 #include "qspi.h"
 #include "board.h"
+#include "core_ca.h"
 #include "printf.h"
 #include "stm32mp135fxx_ca7.h"
 #include "stm32mp13xx_hal.h"
@@ -457,5 +458,198 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    my_printf("BENCHDBG poll_done t=%lu len=%lu firsterr=%ld\r\n",
              (unsigned long)HAL_GetTick(), (unsigned long)len,
              (first_err == 0xFFFFFFFFUL) ? -1L : (long)first_err);
+   return HAL_OK;
+}
+
+/* MDMA channel 0 streaming read into DDR.  Direct register programming
+ * (HAL not used) so we can pin TSEL = 0x1A (QUADSPI FIFO threshold) per
+ * RM0475.  The destination must be 4-byte aligned and lie in DDR. */
+HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
+                                 uint8_t dummy_cycles, uint32_t len,
+                                 bool raw, uint32_t dst_addr,
+                                 uint32_t timeout_ms)
+{
+   if (!initialised || len == 0U)
+      return HAL_ERROR;
+   if (dst_addr & 0x3U)
+      return HAL_ERROR;
+
+   /* Enable MDMA AHB6 clock.  Idempotent. */
+   __HAL_RCC_MDMA_CLK_ENABLE();
+
+   const uint32_t deadline = HAL_GetTick() + timeout_ms;
+
+   /* Drain any prior QSPI state. */
+   while (QUADSPI->SR & QUADSPI_SR_BUSY) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+   QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
+                  QUADSPI_FCR_CTEF;
+
+   MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
+
+   /* Disable channel and clear any pending flags. */
+   ch->CCR = 0U;
+   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
+               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+
+   /* Clean+invalidate the destination cache range so:
+    *  (a) any dirty lines won't get written back over MDMA data, and
+    *  (b) a subsequent CPU read picks up the fresh DDR contents.
+    * The Cortex-A7 minimum L1 D-line is 32 B; loop is conservative. */
+   const uint32_t line_sz = 32U;
+   for (uint32_t a = dst_addr & ~(line_sz - 1U);
+        a < dst_addr + len; a += line_sz)
+      L1C_CleanInvalidateDCacheMVA((void *)a);
+   __asm volatile("dsb sy" ::: "memory");
+
+   /* Number of bytes per buffer transfer.  Choose 64 B = 16 beats of
+    * 32-bit (matches AXI/AHB max burst length on this CPU bus).  TLEN
+    * field is "bytes-1". */
+   const uint32_t tlen = 64U;
+   const uint32_t bndt = len; /* block size in bytes */
+
+   /* CTCR:
+    *   SINC = 0  (source address fixed, QUADSPI->DR)
+    *   DINC = 2  (destination increments)
+    *   SSIZE = 2 (32-bit reads from FIFO)
+    *   DSIZE = 2 (32-bit writes to DDR)
+    *   SBURST = 0 (single 32-bit read; QSPI FIFO is FTHRES=3 -> >=4 B)
+    *   DBURST = 4 (16-beat burst write to DDR)
+    *   TLEN  = tlen-1
+    *   PKE = 0, PAM = 0 (matched sizes)
+    *   TRGM = 0 (each request triggers ONE buffer transfer == TLEN bytes)
+    *   SWRM = 0 (HW request)
+    *   BWM  = 1 (bufferable writes -- DDR is normal cacheable)
+    */
+   const uint32_t ctcr =
+       (0U  << MDMA_CTCR_SINC_Pos)   |
+       (2U  << MDMA_CTCR_DINC_Pos)   |
+       (2U  << MDMA_CTCR_SSIZE_Pos)  |
+       (2U  << MDMA_CTCR_DSIZE_Pos)  |
+       (0U  << MDMA_CTCR_SBURST_Pos) |
+       (4U  << MDMA_CTCR_DBURST_Pos) |
+       ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
+       MDMA_CTCR_BWM;
+
+   /* CBNDTR.BNDT = block size in bytes (max 0x1FFFF = 128 KB - 1).
+    * For multi-MB transfers, len <= 16 MB  ->  use block-repeat: split
+    * into N = ceil(len / 65536) blocks and BRC = N - 1.  Use 65536-byte
+    * blocks (BNDT = 65536) which divides len cleanly in our test. */
+   if (len > 0x1FFFFU) {
+      /* Use block-repeat with 65536-byte blocks. */
+      if (len & 0xFFFFU)
+         return HAL_ERROR; /* require 64 KB-multiple in this path */
+      const uint32_t blocks = len >> 16; /* len / 65536 */
+      if (blocks > 0xFFFU + 1U)
+         return HAL_ERROR;
+      ch->CBNDTR = (65536U & MDMA_CBNDTR_BNDT_Msk) |
+                   ((blocks - 1U) << MDMA_CBNDTR_BRC_Pos) |
+                   MDMA_CBNDTR_BRDUM; /* dst increments across blocks */
+      /* No source/destination block address offset (contiguous). */
+      ch->CBRUR = 0U;
+   } else {
+      ch->CBNDTR = bndt & MDMA_CBNDTR_BNDT_Msk;
+      ch->CBRUR  = 0U;
+   }
+
+   ch->CTCR = ctcr;
+   ch->CSAR = (uint32_t)&QUADSPI->DR;
+   ch->CDAR = dst_addr;
+   /* CTBR.TSEL = 0x1A (QUADSPI FIFO threshold).  SBUS/DBUS = 0 (AXI). */
+   ch->CTBR = 0x1AU & MDMA_CTBR_TSEL_Msk;
+   ch->CMAR = 0U;
+   ch->CMDR = 0U;
+
+   /* Build QUADSPI CCR (FMODE=01 indirect read).  Match the bench's
+    * raw / non-raw layout. */
+   QUADSPI->DLR = len - 1U;
+   QUADSPI->ABR = 0U;
+
+   uint32_t ccr = 0;
+   if (!raw) {
+      ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
+      ccr |= 1U << CCR_IMODE_Pos;
+      ccr |= 1U << CCR_ADMODE_Pos;
+      ccr |= (3U - 1U) << CCR_ADSIZE_Pos;
+   }
+   ccr |= lines_to_mode(data_lines) << CCR_DMODE_Pos;
+   ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
+   ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
+
+   /* Assert DMAEN before kicking the read. */
+   QUADSPI->CR |= QUADSPI_CR_DMAEN;
+
+   /* Enable MDMA channel BEFORE the QSPI request can fire. */
+   ch->CCR = MDMA_CCR_EN;
+
+   QUADSPI->CCR = ccr;
+   if (!raw)
+      QUADSPI->AR = 0U;
+
+   /* Poll for MDMA CTC (channel transfer complete) AND QSPI TCF. */
+   for (;;) {
+      const uint32_t cisr = ch->CISR;
+      if (cisr & MDMA_CISR_TEIF) {
+         my_printf("MDMADBG TE cesr=%08lx\r\n",
+                   (unsigned long)ch->CESR);
+         ch->CCR = 0U;
+         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
+         qspi_abort();
+         return HAL_ERROR;
+      }
+      if (cisr & MDMA_CISR_CTCIF)
+         break;
+      if (QUADSPI->SR & QUADSPI_SR_TEF) {
+         ch->CCR = 0U;
+         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
+         qspi_abort();
+         return HAL_ERROR;
+      }
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         my_printf("MDMADBG timeout cisr=%08lx sr=%08lx bndt=%08lx\r\n",
+                   (unsigned long)cisr, (unsigned long)QUADSPI->SR,
+                   (unsigned long)ch->CBNDTR);
+         ch->CCR = 0U;
+         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+
+   /* Wait for QSPI transfer-complete flag too. */
+   while (!(QUADSPI->SR & QUADSPI_SR_TCF)) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         ch->CCR = 0U;
+         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+   QUADSPI->FCR = QUADSPI_FCR_CTCF;
+   while (QUADSPI->SR & QUADSPI_SR_BUSY) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         ch->CCR = 0U;
+         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+
+   /* Tear down. */
+   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
+               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+   ch->CCR = 0U;
+   QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
+
+   /* Invalidate the destination so CPU sees the freshly-DMA'd data. */
+   for (uint32_t a = dst_addr & ~(line_sz - 1U);
+        a < dst_addr + len; a += line_sz)
+      L1C_InvalidateDCacheMVA((void *)a);
+   __asm volatile("dsb sy" ::: "memory");
+
    return HAL_OK;
 }

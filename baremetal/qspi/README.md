@@ -493,6 +493,36 @@ fpga:uart_close
 - Check quad-lane is faster than single-lane at every step
 - Check max quad-lane throughput at the highest scanned SCLK
 
+Block 12 -- MDMA streaming read of 16 MB into DDR.  Exceeds SRAM
+(160 KB) by 100x, so this transfer is impossible without offloading the
+FIFO drain to MDMA.  MDMA channel 0 is programmed with TSEL=0x1A
+(QUADSPI FIFO threshold), source = `&QUADSPI->DR` (fixed), destination
+= `0xC0000000` in DDR (incrementing, 16-beat write bursts).  The
+firmware then walks the DDR buffer end-to-end to compute CRC32 and the
+first index that violates the `i & 0xFF` incrementing pattern.
+
+```
+fpga:program bin=@qspi.bin
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=200
+mp135:uart_write data="p 15\r"
+delay ms=100
+mp135:uart_write data="m 16777216 1 1\r"
+mp135:uart_expect sentinel="mdma 16777216 B" timeout_ms=60000
+delay ms=300
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check 16 MB MDMA read completes
+- Check 16 MB MDMA throughput at least 50 Mbps
+- Check 16 MB MDMA data integrity into DDR
+- Check `test_serv` had no errors
+
 Block 5 -- SFDP signature, header, BFPT pointer, and BFPT contents.
 Read enough SFDP bytes to cover the header (8 B), first parameter
 header (8 B at offset 8), and a generous BFPT slab.  `r` caps at 1024

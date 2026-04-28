@@ -380,6 +380,66 @@ def _format_bench(b):
     return f"{head}, got={_format_got16(b)}"
 
 
+_MDMA_RE = re.compile(
+    rb"mdma (\d+) B (1lane|quad) in (\d+) ms,"
+    rb"\s+(\d+)\.(\d+) Mbps,\s+crc32=([0-9a-f]+),\s+firsterr=(-?\d+)")
+
+
+def _mdma_lines():
+    out = []
+    for m in _MDMA_RE.finditer(_read_uart_raw()):
+        out.append({
+            "len":      int(m.group(1)),
+            "mode":     m.group(2).decode(),
+            "ms":       int(m.group(3)),
+            "mbps_x10": int(m.group(4)) * 10 + int(m.group(5)),
+            "crc":      int(m.group(6), 16),
+            "firsterr": int(m.group(7)),
+        })
+    return out
+
+
+def _mdma_pick(length):
+    for b in _mdma_lines():
+        if b["len"] == length:
+            return b
+    return None
+
+
+def _format_mdma(b):
+    mbps = b["mbps_x10"] / 10.0
+    return (f"{b['len']} B {b['mode']} in {b['ms']} ms, "
+            f"{mbps:.1f} Mbps, crc32={b['crc']:08x}, "
+            f"firsterr={b['firsterr']}")
+
+
+def check_mdma_16mb_completes():
+    b = _mdma_pick(16 * 1024 * 1024)
+    if b is None:
+        sys.stdout.write("no mdma 16777216 B line in UART capture\n")
+        return False
+    sys.stdout.write(f"{_format_mdma(b)}\n")
+    return True
+
+
+def check_mdma_16mb_throughput_50mbps():
+    b = _mdma_pick(16 * 1024 * 1024)
+    if b is None:
+        sys.stdout.write("no mdma 16777216 B line in UART capture\n")
+        return False
+    sys.stdout.write(f"{_format_mdma(b)}\n")
+    return b["mbps_x10"] >= 500  # 50.0 Mbps
+
+
+def check_mdma_16mb_integrity():
+    b = _mdma_pick(16 * 1024 * 1024)
+    if b is None:
+        sys.stdout.write("no mdma 16777216 B line in UART capture\n")
+        return False
+    sys.stdout.write(f"{_format_mdma(b)}\n")
+    return b["firsterr"] == -1
+
+
 def _scan_count_check(mode):
     runs = _scan_runs_by_presc(mode)
     sys.stdout.write(
@@ -1763,6 +1823,11 @@ DISPATCH = {
         check_1mb_scan_quad_faster,
     "Check max quad-lane throughput at the highest scanned SCLK":
         check_1mb_scan_max_quad_rate,
+    # Block 12 -- MDMA 16 MB streaming read into DDR
+    "Check 16 MB MDMA read completes": check_mdma_16mb_completes,
+    "Check 16 MB MDMA throughput at least 50 Mbps":
+        check_mdma_16mb_throughput_50mbps,
+    "Check 16 MB MDMA data integrity into DDR": check_mdma_16mb_integrity,
     # Block 3
     "Check SFDP signature is 53 46 44 50": check_sfdp_signature,
     "Check SFDP first parameter header is BFPT (id-lsb 0x00)":

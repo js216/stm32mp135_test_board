@@ -87,6 +87,19 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t  *got16_out,
                                   uint32_t *elapsed_ms_out);
 
+/* MDMA-driven streaming read: programs MDMA channel 0 with TSEL=0x1A
+ * (QUADSPI FIFO threshold) so the QSPI FIFO drains directly into DDR
+ * without any CPU loop.  Source = &QUADSPI->DR (address-fixed); dest =
+ * `dst_addr` in DDR (incrementing).  CCR is programmed exactly like the
+ * bench (FMODE=01, IMODE/ADMODE = 0 if `raw`, else IMODE=1 ADMODE=1
+ * ADSIZE=2).  Polls MDMA CTC + QUADSPI TCF; aborts on timeout.  After
+ * success the destination cache lines are invalidated so a subsequent
+ * CPU read sees the freshly-DMA'd bytes. */
+HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
+                                 uint8_t dummy_cycles, uint32_t len,
+                                 bool raw, uint32_t dst_addr,
+                                 uint32_t timeout_ms);
+
 /* Accessors used by the CLI '?' command. */
 uint32_t qspi_get_prescaler(void);
 uint32_t qspi_get_fsize(void);

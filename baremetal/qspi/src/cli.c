@@ -11,6 +11,7 @@
 
 #include "cli.h"
 #include "board.h"
+#include "defaults.h"
 #include "printf.h"
 #include "qspi.h"
 #include "stm32mp135fxx_ca7.h"
@@ -136,6 +137,7 @@ static void cmd_help(void)
       " 3 <a> <n>      dual-I/O read 0xBB (alt=0xA0, 4 dummy)\r\n"
       " M <a> <n>      memory-mapped read\r\n"
       " b <n> [q=0/1] [raw=0/1]  bench streaming read\r\n"
+      " m <n> [q=0/1] [raw=0/1]  MDMA streaming read into DDR\r\n"
       " j <n> [q=0/1] raw data-only read (no opcode/addr)\r\n"
       " J <b0> ...    raw data-only write (no opcode/addr)\r\n"
       " e [opc=0x06]   opcode-only (WREN)\r\n"
@@ -439,6 +441,81 @@ static void cmd_bench(int argc, char **argv)
              got16[4], got16[5], got16[6], got16[7],
              got16[8], got16[9], got16[10], got16[11],
              got16[12], got16[13], got16[14], got16[15]);
+   busy_flag = false;
+}
+
+/* MDMA streaming read into DDR.  Validates the same i&0xFF incrementing
+ * pattern the bench expects and prints throughput + CRC32 + first-error
+ * offset.  Destination is `DEF_DDR_BASE` (0xC0000000) -- 16 MB+ workloads
+ * are expected to exceed SRAM and must use this path. */
+static void cmd_mdma(int argc, char **argv)
+{
+   uint32_t len  = arg_u32(argc > 0 ? argv[0] : NULL, 4096U);
+   uint32_t quad = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
+   uint32_t raw  = arg_u32(argc > 2 ? argv[2] : NULL, 0U);
+   if (len == 0U) len = 4096U;
+   /* MDMA path requires len to be a 64 KB multiple when len > 128 KB,
+    * and a 4-byte multiple always. */
+   if (len & 0x3U) {
+      my_printf("ERR mdma: len must be 4-byte aligned\r\n");
+      return;
+   }
+   if (len > 0x1FFFFU && (len & 0xFFFFU)) {
+      my_printf("ERR mdma: len > 128 KB must be 64 KB-aligned\r\n");
+      return;
+   }
+   busy_flag = true;
+
+   const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
+   const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
+   const uint8_t dummy   = raw ? 0U : 8U;
+   const uint32_t dst    = DEF_DDR_BASE;
+
+   const uint32_t t0 = HAL_GetTick();
+   HAL_StatusTypeDef s = qspi_mdma_read(opcode, dl, dummy, len,
+                                        raw != 0U, dst, 60000U);
+   const uint32_t dt_raw = HAL_GetTick() - t0;
+   if (s != HAL_OK) {
+      my_printf("ERR mdma (%d) dt=%lu\r\n",
+                (int)s, (unsigned long)dt_raw);
+      busy_flag = false;
+      return;
+   }
+
+   /* CRC32 + first-error scan over the DDR buffer. */
+   const volatile uint8_t *p = (const volatile uint8_t *)dst;
+   uint32_t crc       = 0xFFFFFFFFUL;
+   uint32_t first_err = 0xFFFFFFFFUL;
+   for (uint32_t i = 0; i < len; i++) {
+      const uint8_t b = p[i];
+      crc ^= (uint32_t)b;
+      for (int j = 0; j < 8; j++)
+         crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
+      const uint8_t exp = (uint8_t)(i & 0xFFU);
+      if (b != exp && first_err == 0xFFFFFFFFUL)
+         first_err = i;
+   }
+   crc ^= 0xFFFFFFFFUL;
+
+   uint32_t dt = dt_raw;
+   if (dt == 0U) dt = 1U;
+   uint32_t mbps_x10;
+   if (len <= 50000000U)
+      mbps_x10 = (len * 80U) / (dt * 1000U);
+   else
+      mbps_x10 = ((len / 1000U) * 80U) / dt;
+
+   const long firsterr_signed =
+       (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
+   my_printf("mdma %lu B %s in %lu ms, %lu.%lu Mbps, "
+             "crc32=%08lx, firsterr=%ld\r\n",
+             (unsigned long)len,
+             quad ? "quad" : "1lane",
+             (unsigned long)dt_raw,
+             (unsigned long)(mbps_x10 / 10U),
+             (unsigned long)(mbps_x10 % 10U),
+             (unsigned long)crc,
+             firsterr_signed);
    busy_flag = false;
 }
 
@@ -815,6 +892,7 @@ static void dispatch(char *line)
       case '3': cmd_dual_io_read(argc, argv);     break;
       case 'M': cmd_mm(argc, argv);               break;
       case 'b': cmd_bench(argc, argv);            break;
+      case 'm': cmd_mdma(argc, argv);             break;
       case 'j': cmd_raw_read(argc, argv);         break;
       case 'J': cmd_raw_write(argc, argv);        break;
       case 'e': cmd_op_only(argc, argv);          break;
