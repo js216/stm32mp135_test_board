@@ -152,8 +152,10 @@ static void cmd_help(void)
       " R              soft reset 0x66 0x99\r\n"
       " D              deep power-down 0xB9\r\n"
       " d              release DPD 0xAB\r\n"
-      " p <n>          set prescaler\r\n"
+      " p <n> [s]      set prescaler, optional sample shift\r\n"
       " g <mask6>      raw GPIO drive (bits: CLK NCS IO0 IO1 IO2 IO3)\r\n"
+      " G              raw GPIO read  (bits: CLK NCS IO0 IO1 IO2 IO3)\r\n"
+      " k <n> [q=0/1] [io=1]  bit-bang raw read over GPIO\r\n"
       " t [ms=1]       toggle all 6 pins forever (reset to stop)\r\n"
       " x              abort + drain FIFO\r\n"
       " h              this help\r\n");
@@ -441,7 +443,7 @@ static void cmd_bench(int argc, char **argv)
              got16[4], got16[5], got16[6], got16[7],
              got16[8], got16[9], got16[10], got16[11],
              got16[12], got16[13], got16[14], got16[15]);
-   busy_flag = false;
+   busy_flag = true;
 }
 
 /* MDMA streaming read into DDR.  Validates the same i&0xFF incrementing
@@ -516,7 +518,7 @@ static void cmd_mdma(int argc, char **argv)
              (unsigned long)(mbps_x10 % 10U),
              (unsigned long)crc,
              firsterr_signed);
-   busy_flag = false;
+   busy_flag = true;
 }
 
 /* Raw data-only read: IMODE=ADMODE=ABMODE=0, just DMODE on the wire.
@@ -766,16 +768,16 @@ static void cmd_prescaler(int argc, char **argv)
       my_printf("ERR presc range\r\n");
       return;
    }
-   /* Enable 1/2-cycle sample shift at high SCLK so MISO sampling is
-    * stable above ~50 MHz.  ker_ck on this project is ~266 MHz, so
-    * presc <= 3 (>=66 MHz) gets the shift. */
-   const uint32_t sshift = (p <= 3U) ? 1U : 0U;
+   /* Enable 1/2-cycle sample shift at high SCLK by default, but allow
+    * manual override for FPGA timing bring-up. */
+   const uint32_t sshift = arg_u32(argc > 1 ? argv[1] : NULL,
+                                   (p <= 5U) ? 1U : 0U) ? 1U : 0U;
    if (qspi_init(p, qspi_get_fsize(), qspi_get_csht(), sshift, false)
        != HAL_OK) {
       my_printf("ERR reinit\r\n");
       return;
    }
-   busy_flag = false;
+   busy_flag = true;
    my_printf("presc=%lu sshift=%lu\r\n",
              (unsigned long)p, (unsigned long)sshift);
 }
@@ -797,18 +799,68 @@ static const struct pin_def pins[6] = {
    { QSPI_IO3_PORT, QSPI_IO3_PIN, "IO3" },
 };
 
+static void config_gpio_pin(int i, uint32_t mode)
+{
+   GPIO_InitTypeDef g = {
+      .Pin   = pins[i].pin,
+      .Mode  = mode,
+      .Pull  = GPIO_NOPULL,
+      .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+   };
+   HAL_GPIO_Init(pins[i].port, &g);
+}
+
 static void force_gpio_outputs(void)
 {
    QUADSPI->CR &= ~QUADSPI_CR_EN;
-   for (int i = 0; i < 6; i++) {
-      GPIO_InitTypeDef g = {
-         .Pin   = pins[i].pin,
-         .Mode  = GPIO_MODE_OUTPUT_PP,
-         .Pull  = GPIO_NOPULL,
-         .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
-      };
-      HAL_GPIO_Init(pins[i].port, &g);
-   }
+   for (int i = 0; i < 6; i++)
+      config_gpio_pin(i, GPIO_MODE_OUTPUT_PP);
+}
+
+static void force_gpio_inputs(void)
+{
+   QUADSPI->CR &= ~QUADSPI_CR_EN;
+   for (int i = 0; i < 6; i++)
+      config_gpio_pin(i, GPIO_MODE_INPUT);
+}
+
+static void gpio_write_idx(int i, uint32_t high)
+{
+   HAL_GPIO_WritePin(pins[i].port, pins[i].pin,
+                     high ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static uint32_t gpio_read_idx(int i)
+{
+   return HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET;
+}
+
+static void gpio_bitbang_delay(void)
+{
+   for (volatile uint32_t i = 0; i < 20U; i++)
+      __asm volatile("nop");
+}
+
+static void gpio_prepare_bitbang(void)
+{
+   QUADSPI->CR &= ~QUADSPI_CR_EN;
+   config_gpio_pin(0, GPIO_MODE_OUTPUT_PP); /* CLK */
+   config_gpio_pin(1, GPIO_MODE_OUTPUT_PP); /* NCS */
+   for (int i = 2; i < 6; i++)
+      config_gpio_pin(i, GPIO_MODE_INPUT);
+   gpio_write_idx(0, 0U);
+   gpio_write_idx(1, 1U);
+   gpio_bitbang_delay();
+}
+
+static uint32_t gpio_clock_sample_nibble(void)
+{
+   gpio_write_idx(0, 0U);
+   gpio_bitbang_delay();
+   gpio_write_idx(0, 1U);
+   gpio_bitbang_delay();
+   return gpio_read_idx(2) | (gpio_read_idx(3) << 1) |
+          (gpio_read_idx(4) << 2) | (gpio_read_idx(5) << 3);
 }
 
 static void cmd_gpio(int argc, char **argv)
@@ -827,6 +879,65 @@ static void cmd_gpio(int argc, char **argv)
       my_printf(" %s=%d", pins[i].name, rb);
    }
    my_printf("\r\n");
+}
+
+static void cmd_gpio_read(void)
+{
+   busy_flag = true;
+   force_gpio_inputs();
+   my_printf("gpio read:");
+   for (int i = 0; i < 6; i++) {
+      int rb = HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET;
+      my_printf(" %s=%d", pins[i].name, rb);
+   }
+   my_printf("\r\n");
+}
+
+static void cmd_gpio_bitbang_read(int argc, char **argv)
+{
+   uint32_t len  = arg_u32(argc > 0 ? argv[0] : NULL, 16U);
+   uint32_t quad = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
+   uint32_t io   = arg_u32(argc > 2 ? argv[2] : NULL, 1U);
+   if (len > READ_CAP)
+      len = READ_CAP;
+   if (io > 3U) {
+      my_printf("ERR io range\r\n");
+      return;
+   }
+
+   busy_flag = true;
+   gpio_prepare_bitbang();
+   gpio_write_idx(1, 0U);
+   gpio_bitbang_delay();
+
+   for (uint32_t n = 0; n < len; n++) {
+      uint8_t v = 0U;
+      if (quad) {
+         uint32_t lo = gpio_clock_sample_nibble();
+         uint32_t hi = gpio_clock_sample_nibble();
+         v = (uint8_t)(lo | (hi << 4));
+      } else {
+         int pin = 2 + (int)io;
+         for (int bit = 7; bit >= 0; bit--) {
+            gpio_write_idx(0, 0U);
+            gpio_bitbang_delay();
+            gpio_write_idx(0, 1U);
+            gpio_bitbang_delay();
+            if (gpio_read_idx(pin))
+               v |= (uint8_t)(1U << bit);
+         }
+      }
+      io_buf[n] = v;
+   }
+
+   gpio_write_idx(0, 0U);
+   gpio_write_idx(1, 1U);
+   if (quad)
+      my_printf("bb read %lu (quad)\r\n", (unsigned long)len);
+   else
+      my_printf("bb read %lu (1lane io=%lu)\r\n",
+                (unsigned long)len, (unsigned long)io);
+   hexdump(0U, io_buf, len);
 }
 
 static void cmd_toggle(int argc, char **argv)
@@ -909,6 +1020,8 @@ static void dispatch(char *line)
       case 'd': cmd_release_dpd();                break;
       case 'p': cmd_prescaler(argc, argv);        break;
       case 'g': cmd_gpio(argc, argv);             break;
+      case 'G': cmd_gpio_read();                  break;
+      case 'k': cmd_gpio_bitbang_read(argc, argv); break;
       case 't': cmd_toggle(argc, argv);           break;
       case 'x': cmd_abort();                      break;
       case 'h': cmd_help();                       break;

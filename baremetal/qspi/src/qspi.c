@@ -339,7 +339,6 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
              (unsigned long)HAL_GetTick(),
              (unsigned long)QUADSPI->SR);
 
-   volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
    volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
    uint32_t crc                  = 0xFFFFFFFFUL;
    uint32_t first_err            = 0xFFFFFFFFUL;
@@ -349,13 +348,15 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    uint32_t last_wait_t          = t0;
    uint32_t wait_iters           = 0;
 
-   /* Drain in 32-bit words while at least 4 bytes are in the FIFO.
-    * FTHRES=3 (set in qspi_init) -> FTF asserts at >= 4 bytes available,
-    * so a single FTF poll covers a full word read.  Tail (< 4 bytes)
-    * falls back to byte-serial. */
+   /* Drain byte-wide. The matching raw-read command uses qspi_xfer(),
+    * which reads DR as bytes and has proven stable against the FPGA
+    * incrementing stream. Word-wide DR reads can disturb byte ordering
+    * on this path, so the bench keeps the same access width as the
+    * correctness-oriented command. */
    uint32_t i = 0;
-   while (i + 4U <= len) {
+   while (i < len) {
       while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
+         if (QUADSPI->SR & QUADSPI_SR_TCF) break;  /* last bytes */
          wait_iters++;
          const uint32_t now = HAL_GetTick();
          if (wait_prints < 5U &&
@@ -366,40 +367,6 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
             wait_prints++;
             last_wait_t = now;
          }
-         if (QUADSPI->SR & QUADSPI_SR_TEF) {
-            my_printf("BENCHDBG poll_tef sr=%08lx\r\n",
-                      (unsigned long)QUADSPI->SR);
-            qspi_abort();
-            return HAL_ERROR;
-         }
-         if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-            my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
-                      (unsigned long)HAL_GetTick(),
-                      (unsigned long)QUADSPI->SR,
-                      (unsigned long)i);
-            qspi_abort();
-            return HAL_TIMEOUT;
-         }
-      }
-      const uint32_t w = *dr32;
-      for (int k = 0; k < 4; k++) {
-         const uint8_t b = (uint8_t)(w >> (k * 8));
-         const uint32_t off = i + (uint32_t)k;
-         if (off < 16U)
-            got16[off] = b;
-         crc ^= (uint32_t)b;
-         for (int j = 0; j < 8; j++)
-            crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
-         const uint8_t exp = (uint8_t)(off & 0xFFU);
-         if (b != exp && first_err == 0xFFFFFFFFUL)
-            first_err = off;
-      }
-      i += 4U;
-   }
-   /* Drain the trailing 1..3 bytes byte-serial. */
-   while (i < len) {
-      while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
-         if (QUADSPI->SR & QUADSPI_SR_TCF) break;  /* last bytes */
          if (QUADSPI->SR & QUADSPI_SR_TEF) {
             my_printf("BENCHDBG poll_tef sr=%08lx\r\n",
                       (unsigned long)QUADSPI->SR);
@@ -506,7 +473,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
       L1C_CleanInvalidateDCacheMVA((void *)a);
    __asm volatile("dsb sy" ::: "memory");
 
-   /* Number of bytes per buffer transfer.  Choose 64 B = 16 beats of
+   /* Number of bytes per buffer transfer. Choose 64 B = 16 beats of
     * 32-bit (matches AXI/AHB max burst length on this CPU bus).  TLEN
     * field is "bytes-1". */
    const uint32_t tlen = 64U;
@@ -517,6 +484,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
     *   DINC = 2  (destination increments)
     *   SSIZE = 2 (32-bit reads from FIFO)
     *   DSIZE = 2 (32-bit writes to DDR)
+    *   DINCOS = 2 (destination advances by 32-bit words)
     *   SBURST = 0 (single 32-bit read; QSPI FIFO is FTHRES=3 -> >=4 B)
     *   DBURST = 4 (16-beat burst write to DDR)
     *   TLEN  = tlen-1
@@ -530,6 +498,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
        (2U  << MDMA_CTCR_DINC_Pos)   |
        (2U  << MDMA_CTCR_SSIZE_Pos)  |
        (2U  << MDMA_CTCR_DSIZE_Pos)  |
+       (2U  << MDMA_CTCR_DINCOS_Pos) |
        (0U  << MDMA_CTCR_SBURST_Pos) |
        (4U  << MDMA_CTCR_DBURST_Pos) |
        ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |

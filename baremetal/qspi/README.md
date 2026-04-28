@@ -121,6 +121,8 @@ Type a single-letter command (followed by space-separated decimal or
 | Cmd          | Description                                                                | Example                                   |
 |--------------|----------------------------------------------------------------------------|-------------------------------------------|
 | `g <mask6>`  | Disable QSPI; force CLK/NCS/IO0..3 to GPIO output and drive bits 0..5      | `gpio mask=0x3f: CLK=1 NCS=1 ...`         |
+| `G`          | Disable QSPI; sample CLK/NCS/IO0..3 as GPIO inputs and print their levels  | `gpio read: CLK=0 NCS=1 ...`              |
+| `k <n> [q=0/1] [io=1]` | Disable QSPI; bit-bang NCS/CLK as GPIO and sample `n` bytes. Single-lane samples IO`io`; quad samples IO0..3 as low nibble then high nibble | `bb read 16 (quad)` |
 | `t [ms=1]`   | Run `g 0` then infinite-loop toggle all 6 between low/high.  Reset to stop | `toggle period=1 ms (reset to stop)`      |
 
 #### Control
@@ -221,6 +223,44 @@ fpga:uart_close
 - Check diagnose presc=1 quad: bench function returned
 - Check diagnose presc=1 quad: post-bench CLI alive
 - Check diagnose presc=1 quad: no fault handler triggered
+
+Block 2a -- raw GPIO drive/read helpers.
+
+The `g` command is an output-side bring-up tool: it disables QUADSPI,
+configures `CLK/NCS/IO0/IO1/IO2/IO3` as push-pull GPIO outputs, drives
+the supplied six-bit mask, and prints the read-back level of each pin.
+The `G` command is the complementary input-side probe: it disables
+QUADSPI, configures the same six pins as GPIO inputs, and prints their
+sampled levels.  The `k` command uses GPIO-only software NCS/CLK to read
+bytes without the QUADSPI peripheral: `k <n> 0 <io>` samples one data
+lane, while `k <n> 1` samples IO0..3 as low nibble then high nibble.
+The input levels depend on whatever is wired to CN8, so this block only
+asserts that the command paths execute and report parseable output.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=200
+mp135:uart_write data="g 0x2a\r"
+mp135:uart_expect sentinel="gpio mask=0x2a:" timeout_ms=3000
+delay ms=100
+mp135:uart_write data="G\r"
+mp135:uart_expect sentinel="gpio read:" timeout_ms=3000
+delay ms=100
+mp135:uart_write data="k 4 0 1\r"
+mp135:uart_expect sentinel="bb read 4 (1lane io=1)" timeout_ms=3000
+delay ms=100
+mp135:uart_write data="k 4 1\r"
+mp135:uart_expect sentinel="bb read 4 (quad)" timeout_ms=3000
+mp135:uart_close
+```
+
+- Check raw GPIO drive command reports all six pins
+- Check raw GPIO read command reports all six pins
+- Check bit-bang 1-lane read command prints hex dump
+- Check bit-bang quad read command prints hex dump
 
 Blocks 3-10 below are individual per-(mode, prescaler) 1 MB bench
 runs.  Each fenced plan reflashes the firmware, sets one prescaler,

@@ -283,6 +283,36 @@ def check_diag_no_fault():
     return True
 
 
+GPIO_DRIVE_RE = re.compile(
+    rb"gpio mask=0x[0-9a-f]+: CLK=[01] NCS=[01] IO0=[01] "
+    rb"IO1=[01] IO2=[01] IO3=[01]")
+GPIO_READ_RE = re.compile(
+    rb"gpio read: CLK=[01] NCS=[01] IO0=[01] IO1=[01] IO2=[01] "
+    rb"IO3=[01]")
+BB_1LANE_RE = re.compile(
+    rb"bb read \d+ \(1lane io=[0-3]\)\r?\n"
+    rb"(?:[0-9a-f]{8}:(?: [0-9a-f]{2}){1,16}\r?\n)+")
+BB_QUAD_RE = re.compile(
+    rb"bb read \d+ \(quad\)\r?\n"
+    rb"(?:[0-9a-f]{8}:(?: [0-9a-f]{2}){1,16}\r?\n)+")
+
+
+def check_gpio_drive_reports_all_six():
+    return _expect(GPIO_DRIVE_RE, "raw GPIO drive reports all six pins")
+
+
+def check_gpio_read_reports_all_six():
+    return _expect(GPIO_READ_RE, "raw GPIO read reports all six pins")
+
+
+def check_bitbang_1lane_dump():
+    return _expect(BB_1LANE_RE, "bit-bang 1-lane read hex dump")
+
+
+def check_bitbang_quad_dump():
+    return _expect(BB_QUAD_RE, "bit-bang quad read hex dump")
+
+
 def check_loop():
     raw = _read_uart_raw()
     looped = re.findall(rb"JEDEC ID: [0-9a-f]{2} [0-9a-f]{2} [0-9a-f]{2}"
@@ -1762,6 +1792,15 @@ DISPATCH = {
         check_diag_cli_alive,
     "Check diagnose presc=1 quad: no fault handler triggered":
         check_diag_no_fault,
+    # Block 2a: raw GPIO and software bit-bang helpers.
+    "Check raw GPIO drive command reports all six pins":
+        check_gpio_drive_reports_all_six,
+    "Check raw GPIO read command reports all six pins":
+        check_gpio_read_reports_all_six,
+    "Check bit-bang 1-lane read command prints hex dump":
+        check_bitbang_1lane_dump,
+    "Check bit-bang quad read command prints hex dump":
+        check_bitbang_quad_dump,
     # Blocks 3-10: per-(mode, presc) 1 MB benches at 4 prescalers each.
     # 4 prescalers x 2 modes x 3 sub-checks = 24 entries.
     "Check 1 MB 1lane @ presc=203 bench completes":
