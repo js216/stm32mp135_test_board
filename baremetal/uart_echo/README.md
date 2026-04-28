@@ -30,8 +30,8 @@ After flashing, the serial console shows the prompt:
 
 Type characters; they should echo.  Press Enter on a non-existent
 command and the shell replies with `Unknown command '...'`.  Type
-`reset` to issue an MPSYSRST, or `ddrtest` to disable the cache and
-check a single byte at `0xC0001000` against `0xAA`.
+`reset` to issue an MPSYSRST, or `ddrtest` to write 1 MB of PRBS data
+at `0xC0000000` and re-read to verify (`DDR PRBS: 1 MB OK` on success).
 
 ### Automated Test
 
@@ -48,7 +48,7 @@ mp135:uart_expect sentinel="abc" timeout_ms=2000
 mp135:uart_write data="zzznotacmd\r"
 mp135:uart_expect sentinel="Unknown command" timeout_ms=2000
 mp135:uart_write data="ddrtest\r"
-mp135:uart_expect sentinel="SUCCESS: Byte 0 worked" timeout_ms=2000
+mp135:uart_expect sentinel="DDR PRBS: 1 MB OK" timeout_ms=10000
 mp135:uart_close
 ```
 
@@ -56,7 +56,7 @@ mp135:uart_close
 - Check the `> ` prompt appeared after reset
 - Check typed characters echoed back to the host
 - Check unknown-command line produced `Unknown command '...'`
-- Check `ddrtest` reported SUCCESS at `0xC0001000`
+- Check `ddrtest` wrote and read back 1 MB of PRBS without mismatch
 
 ### Author
 

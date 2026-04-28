@@ -74,12 +74,13 @@ int qspi_busy(void);
 /* Streaming bench read: programs CCR/DLR/AR once, drains DR in 32-bit
  * words for `len` bytes (no buffer allocation), validates against
  * expected pattern `i & 0xFF` (incrementing).  Returns CRC32, first-
- * error offset (0xFFFFFFFF if all match), the byte actually received
- * at first_err, and elapsed milliseconds. */
+ * error offset (0xFFFFFFFF if all match), the first 16 bytes actually
+ * received (got16, useful even when no error -- always populated), and
+ * elapsed milliseconds. */
 HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t dummy_cycles, uint32_t len,
                                   uint32_t *crc_out, uint32_t *first_err_out,
-                                  uint8_t  *first_err_got_out,
+                                  uint8_t  *got16_out,
                                   uint32_t *elapsed_ms_out);
 
 /* Accessors used by the CLI '?' command. */

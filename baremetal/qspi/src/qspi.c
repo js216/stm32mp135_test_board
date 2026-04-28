@@ -12,6 +12,7 @@
 
 #include "qspi.h"
 #include "board.h"
+#include "printf.h"
 #include "stm32mp135fxx_ca7.h"
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_def.h"
@@ -293,11 +294,17 @@ HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
 HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t dummy_cycles, uint32_t len,
                                   uint32_t *crc_out, uint32_t *first_err_out,
-                                  uint8_t  *first_err_got_out,
+                                  uint8_t  *got16_out,
                                   uint32_t *elapsed_ms_out)
 {
    if (!initialised || len == 0)
       return HAL_ERROR;
+
+   my_printf("BENCHDBG poll_enter t=%lu opcode=%02x lines=%u dummy=%u "
+             "len=%lu\r\n",
+             (unsigned long)HAL_GetTick(), (unsigned)opcode,
+             (unsigned)data_lines, (unsigned)dummy_cycles,
+             (unsigned long)len);
 
    const uint32_t deadline = HAL_GetTick() + 600000U;
    while (QUADSPI->SR & QUADSPI_SR_BUSY) {
@@ -322,12 +329,19 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    QUADSPI->CCR = ccr;
    QUADSPI->AR  = 0U;
 
+   my_printf("BENCHDBG poll_kicked t=%lu sr=%08lx\r\n",
+             (unsigned long)HAL_GetTick(),
+             (unsigned long)QUADSPI->SR);
+
    volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
    volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
    uint32_t crc                  = 0xFFFFFFFFUL;
    uint32_t first_err            = 0xFFFFFFFFUL;
-   uint8_t  first_err_got        = 0U;
+   uint8_t  got16[16]            = {0};
    const uint32_t t0             = HAL_GetTick();
+   uint32_t wait_prints          = 0;
+   uint32_t last_wait_t          = t0;
+   uint32_t wait_iters           = 0;
 
    /* Drain in 32-bit words while at least 4 bytes are in the FIFO.
     * FTHRES=3 (set in qspi_init) -> FTF asserts at >= 4 bytes available,
@@ -336,11 +350,27 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    uint32_t i = 0;
    while (i + 4U <= len) {
       while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
+         wait_iters++;
+         const uint32_t now = HAL_GetTick();
+         if (wait_prints < 5U &&
+             (int32_t)(now - last_wait_t) >= 200) {
+            my_printf("BENCHDBG poll_wait t=%lu i=%lu sr=%08lx\r\n",
+                      (unsigned long)now, (unsigned long)i,
+                      (unsigned long)QUADSPI->SR);
+            wait_prints++;
+            last_wait_t = now;
+         }
          if (QUADSPI->SR & QUADSPI_SR_TEF) {
+            my_printf("BENCHDBG poll_tef sr=%08lx\r\n",
+                      (unsigned long)QUADSPI->SR);
             qspi_abort();
             return HAL_ERROR;
          }
          if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+            my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
+                      (unsigned long)HAL_GetTick(),
+                      (unsigned long)QUADSPI->SR,
+                      (unsigned long)i);
             qspi_abort();
             return HAL_TIMEOUT;
          }
@@ -348,14 +378,15 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
       const uint32_t w = *dr32;
       for (int k = 0; k < 4; k++) {
          const uint8_t b = (uint8_t)(w >> (k * 8));
+         const uint32_t off = i + (uint32_t)k;
+         if (off < 16U)
+            got16[off] = b;
          crc ^= (uint32_t)b;
          for (int j = 0; j < 8; j++)
             crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
-         const uint8_t exp = (uint8_t)((i + (uint32_t)k) & 0xFFU);
-         if (b != exp && first_err == 0xFFFFFFFFUL) {
-            first_err     = i + (uint32_t)k;
-            first_err_got = b;
-         }
+         const uint8_t exp = (uint8_t)(off & 0xFFU);
+         if (b != exp && first_err == 0xFFFFFFFFUL)
+            first_err = off;
       }
       i += 4U;
    }
@@ -364,28 +395,38 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
       while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
          if (QUADSPI->SR & QUADSPI_SR_TCF) break;  /* last bytes */
          if (QUADSPI->SR & QUADSPI_SR_TEF) {
+            my_printf("BENCHDBG poll_tef sr=%08lx\r\n",
+                      (unsigned long)QUADSPI->SR);
             qspi_abort();
             return HAL_ERROR;
          }
          if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+            my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
+                      (unsigned long)HAL_GetTick(),
+                      (unsigned long)QUADSPI->SR,
+                      (unsigned long)i);
             qspi_abort();
             return HAL_TIMEOUT;
          }
       }
       const uint8_t b = *dr8;
+      if (i < 16U)
+         got16[i] = b;
       crc ^= (uint32_t)b;
       for (int j = 0; j < 8; j++)
          crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
       const uint8_t exp = (uint8_t)(i & 0xFFU);
-      if (b != exp && first_err == 0xFFFFFFFFUL) {
-         first_err     = i;
-         first_err_got = b;
-      }
+      if (b != exp && first_err == 0xFFFFFFFFUL)
+         first_err = i;
       i++;
    }
 
    while (!(QUADSPI->SR & QUADSPI_SR_TCF)) {
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
+                   (unsigned long)HAL_GetTick(),
+                   (unsigned long)QUADSPI->SR,
+                   (unsigned long)i);
          qspi_abort();
          return HAL_TIMEOUT;
       }
@@ -393,14 +434,23 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    QUADSPI->FCR = QUADSPI_FCR_CTCF;
    while (QUADSPI->SR & QUADSPI_SR_BUSY) {
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
+                   (unsigned long)HAL_GetTick(),
+                   (unsigned long)QUADSPI->SR,
+                   (unsigned long)i);
          qspi_abort();
          return HAL_TIMEOUT;
       }
    }
 
-   *crc_out           = crc ^ 0xFFFFFFFFUL;
-   *first_err_out     = first_err;
-   *first_err_got_out = first_err_got;
-   *elapsed_ms_out    = HAL_GetTick() - t0;
+   *crc_out        = crc ^ 0xFFFFFFFFUL;
+   *first_err_out  = first_err;
+   for (int k = 0; k < 16; k++)
+      got16_out[k] = got16[k];
+   *elapsed_ms_out = HAL_GetTick() - t0;
+   (void)wait_iters;
+   my_printf("BENCHDBG poll_done t=%lu len=%lu firsterr=%ld\r\n",
+             (unsigned long)HAL_GetTick(), (unsigned long)len,
+             (first_err == 0xFFFFFFFFUL) ? -1L : (long)first_err);
    return HAL_OK;
 }

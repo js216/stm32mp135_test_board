@@ -207,6 +207,82 @@ def check_no_errors():
     return True
 
 
+def check_diag_cmd_pre():
+    """Block 2 diagnostic: firmware reached cmd_bench dispatch."""
+    return _expect(re.compile(rb"BENCHDBG cmd_pre"), "BENCHDBG cmd_pre")
+
+
+def check_diag_bench_returned():
+    """Block 2 diagnostic: bench function exited (any path)."""
+    raw = _read_uart_raw()
+    pats = [rb"BENCHDBG cmd_post",
+            rb"BENCHDBG poll_done",
+            rb"BENCHDBG poll_timeout",
+            rb"BENCHDBG poll_tef",
+            rb"ERR bench"]
+    for p in pats:
+        if re.search(p, raw):
+            sys.stdout.write(f"matched bench-returned via {p!r}\n")
+            return True
+    sys.stderr.write("no bench-return marker found "
+                     "(cmd_post / poll_done / poll_timeout / poll_tef / "
+                     "ERR bench)\n")
+    sys.stderr.write("--- last 1024 bytes of UART ---\n")
+    sys.stderr.write(raw[-1024:].decode("ascii", "replace"))
+    sys.stderr.write("\n")
+    return False
+
+
+def check_diag_cli_alive():
+    """Block 2 diagnostic: CLI is responsive AFTER the bench (i.e. ?
+    was sent post-bench and answered with the busy=... query line)."""
+    raw = _read_uart_raw()
+    # Find last BENCHDBG (or ERR bench) marker; check for a busy= line
+    # that follows it.
+    boundary_re = re.compile(rb"BENCHDBG cmd_post|ERR bench|"
+                             rb"BENCHDBG poll_done|BENCHDBG poll_timeout|"
+                             rb"BENCHDBG poll_tef")
+    matches = list(boundary_re.finditer(raw))
+    if not matches:
+        # No bench-return marker: look for any busy= after the last
+        # BENCHDBG cmd_pre (if it exists), else fail.
+        pre = list(re.finditer(rb"BENCHDBG cmd_pre", raw))
+        if not pre:
+            sys.stderr.write("no BENCHDBG markers at all\n")
+            return False
+        tail = raw[pre[-1].end():]
+    else:
+        tail = raw[matches[-1].end():]
+    if re.search(rb"busy=\d+ presc=", tail):
+        sys.stdout.write("post-bench busy= line found\n")
+        return True
+    sys.stderr.write("no post-bench busy= line "
+                     "(CLI did not respond to '?' after bench)\n")
+    sys.stderr.write("--- tail after last BENCHDBG marker ---\n")
+    sys.stderr.write(tail[:1024].decode("ascii", "replace"))
+    sys.stderr.write("\n")
+    return False
+
+
+def check_diag_no_fault():
+    """Block 2 diagnostic: no fault handler emitted its marker char.
+    A fault handler emits its letter four times in a row (UUUU, DDDD,
+    PPPP, etc.) -- check for any 4-in-a-row run of those specific
+    letters.  Must avoid false positives from real CLI output, so we
+    require all four chars in a row with no other separator."""
+    raw = _read_uart_raw()
+    fault_chars = b"USPDRF"
+    for c in fault_chars:
+        pat = bytes([c]) * 4
+        if pat in raw:
+            sys.stderr.write(f"fault marker {pat!r} present in UART\n")
+            sys.stderr.write("--- last 512 bytes ---\n")
+            sys.stderr.write(raw[-512:].decode("ascii", "replace"))
+            sys.stderr.write("\n")
+            return False
+    return True
+
+
 def check_loop():
     raw = _read_uart_raw()
     looped = re.findall(rb"JEDEC ID: [0-9a-f]{2} [0-9a-f]{2} [0-9a-f]{2}"
@@ -239,36 +315,49 @@ def check_throughput():
 
 _BENCH_RE = re.compile(
     rb"bench (\d+) B (1lane|quad)(?: @ presc=(\d+))? in (\d+) ms,"
-    rb"\s+(\d+) KB/s,\s+crc32=([0-9a-f]+),\s+firsterr=(-?\d+)"
-    rb"(?:\s+\(exp=([0-9a-f]+) got=([0-9a-f]+)\))?")
+    rb"\s+(\d+)\.(\d+) Mbps,\s+crc32=([0-9a-f]+),\s+firsterr=(-?\d+),"
+    rb"\s+got=((?:[0-9a-f]{2}\s){15}[0-9a-f]{2})")
 
 
 def _bench_lines():
     out = []
     for m in _BENCH_RE.finditer(_read_uart_raw()):
+        got_bytes = [int(t, 16) for t in m.group(9).decode().split()]
         out.append({
             "len":      int(m.group(1)),
             "mode":     m.group(2).decode(),
             "presc":    int(m.group(3)) if m.group(3) else None,
             "ms":       int(m.group(4)),
-            "kbps":     int(m.group(5)),
-            "crc":      int(m.group(6), 16),
-            "firsterr": int(m.group(7)),
-            "fe_exp":   int(m.group(8), 16) if m.group(8) else None,
-            "fe_got":   int(m.group(9), 16) if m.group(9) else None,
+            "mbps_x10": int(m.group(5)) * 10 + int(m.group(6)),
+            "crc":      int(m.group(7), 16),
+            "firsterr": int(m.group(8)),
+            "got16":    got_bytes,
         })
     return out
 
 
-def _bench_pick(length, mode):
+def _bench_pick(length, mode, presc=None):
     for b in _bench_lines():
-        if b["len"] == length and b["mode"] == mode:
+        if b["len"] == length and b["mode"] == mode \
+                and (presc is None or b["presc"] == presc):
             return b
     return None
 
 
 _PRESC_STEPS = [203, 63, 15, 5, 2, 1]
-_PRESC_MHZ   = {203: 1.63, 63: 5.19, 15: 20.75, 5: 55.33, 2: 110.67, 1: 166.0}
+_PRESC_MHZ   = {203: 3.25, 63: 10.4, 15: 41.5, 5: 110.7, 2: 221.3, 1: 332.0}
+
+
+def _wire_mbps_x10(presc, mode):
+    """Wire-rate envelope at this prescaler in Mbps * 10."""
+    sclk = _PRESC_MHZ[presc]
+    if mode == "1lane":
+        return int(round(sclk * 10))
+    return int(round(sclk * 4 * 10))
+
+
+def _format_got16(b):
+    return " ".join(f"{x:02x}" for x in b["got16"])
 
 
 def _bench_picks_by_presc(length, mode):
@@ -286,12 +375,9 @@ def _scan_runs_by_presc(mode):
 
 def _format_bench(b):
     fe = b["firsterr"]
-    if fe < 0:
-        return (f"{b['ms']} ms, {b['kbps']} KB/s, firsterr=-1")
-    if b["fe_exp"] is not None and b["fe_got"] is not None:
-        return (f"{b['ms']} ms, {b['kbps']} KB/s, firsterr={fe} "
-                f"(exp={b['fe_exp']:02x} got={b['fe_got']:02x})")
-    return (f"{b['ms']} ms, {b['kbps']} KB/s, firsterr={fe}")
+    mbps = b["mbps_x10"] / 10.0
+    head = f"{b['ms']} ms, {mbps:.1f} Mbps, firsterr={fe}"
+    return f"{head}, got={_format_got16(b)}"
 
 
 def _scan_count_check(mode):
@@ -349,14 +435,15 @@ def check_1mb_scan_quad_faster():
         return False
     bad = []
     for p in _PRESC_STEPS:
-        if quad[p]["kbps"] <= one[p]["kbps"]:
-            bad.append((p, one[p]["kbps"], quad[p]["kbps"]))
+        if quad[p]["mbps_x10"] <= one[p]["mbps_x10"]:
+            bad.append((p, one[p]["mbps_x10"], quad[p]["mbps_x10"]))
     if bad:
         sys.stdout.write("quad not faster than 1lane:\n")
         for p, o, q in bad:
-            sys.stdout.write(f"  presc={p:3d}: 1lane={o} KB/s quad={q} KB/s\n")
+            sys.stdout.write(
+                f"  presc={p:3d}: 1lane={o/10:.1f} Mbps quad={q/10:.1f} Mbps\n")
         return False
-    speedups = [quad[p]["kbps"] / max(1, one[p]["kbps"])
+    speedups = [quad[p]["mbps_x10"] / max(1, one[p]["mbps_x10"])
                 for p in _PRESC_STEPS]
     sys.stdout.write(
         "quad faster at every step (speedups: "
@@ -369,12 +456,55 @@ def check_1mb_scan_max_quad_rate():
     if not quad:
         sys.stderr.write("no quad bench lines\n")
         return False
-    best_p = min(quad.keys(), key=lambda p: -quad[p]["kbps"])
+    best_p = min(quad.keys(), key=lambda p: -quad[p]["mbps_x10"])
     best = quad[best_p]
     sys.stdout.write(
-        f"max quad rate: {best['kbps']} KB/s ({best['kbps']/1024:.2f} MB/s)"
-        f" at presc={best_p} ({_PRESC_MHZ.get(best_p, 0):.2f} MHz)\n")
-    return best["kbps"] > 0
+        f"max quad rate: {best['mbps_x10']/10:.1f} Mbps "
+        f"at presc={best_p} ({_PRESC_MHZ.get(best_p, 0):.2f} MHz SCLK)\n")
+    return best["mbps_x10"] > 0
+
+
+# --- Per-(mode, prescaler) blocks (Blocks 2-9) ----------------------
+
+def _make_completes(presc, mode):
+    def check():
+        b = _bench_pick(1048576, mode, presc)
+        if b is None:
+            sys.stderr.write(f"no {mode} bench line for presc={presc}\n")
+            return False
+        sys.stdout.write(f"{_format_bench(b)}\n")
+        return True
+    return check
+
+
+def _make_incrementing(presc, mode):
+    def check():
+        b = _bench_pick(1048576, mode, presc)
+        if b is None:
+            sys.stderr.write(f"no {mode} bench line for presc={presc}\n")
+            return False
+        if b["firsterr"] != -1:
+            sys.stderr.write(
+                f"firsterr={b['firsterr']} got={_format_got16(b)}\n")
+            return False
+        sys.stdout.write(f"data ok (got={_format_got16(b)})\n")
+        return True
+    return check
+
+
+def _make_in_band(presc, mode):
+    def check():
+        b = _bench_pick(1048576, mode, presc)
+        if b is None:
+            sys.stderr.write(f"no {mode} bench line for presc={presc}\n")
+            return False
+        wire = _wire_mbps_x10(presc, mode)
+        obs = b["mbps_x10"]
+        ratio = obs / wire if wire > 0 else 0.0
+        sys.stdout.write(
+            f"{obs/10:.1f} Mbps / {wire/10:.1f} wire = {ratio*100:.1f}%\n")
+        return 0.7 <= ratio <= 1.05
+    return check
 
 
 # --- JEDEC plausibility ----------------------------------------------
@@ -1563,7 +1693,66 @@ DISPATCH = {
         check_jedec_capacity_128k,
     "Check FPGA UART captured op=9f frames from the JEDEC loop":
         check_fpga_jedec_frames,
-    # Block 2
+    # Block 2: presc=1 quad diagnostic (hypothesis decoder).
+    "Check diagnose presc=1 quad: BENCHDBG cmd_pre recorded":
+        check_diag_cmd_pre,
+    "Check diagnose presc=1 quad: bench function returned":
+        check_diag_bench_returned,
+    "Check diagnose presc=1 quad: post-bench CLI alive":
+        check_diag_cli_alive,
+    "Check diagnose presc=1 quad: no fault handler triggered":
+        check_diag_no_fault,
+    # Blocks 3-10: per-(mode, presc) 1 MB benches at 4 prescalers each.
+    # 4 prescalers x 2 modes x 3 sub-checks = 24 entries.
+    "Check 1 MB 1lane @ presc=203 bench completes":
+        _make_completes(203, "1lane"),
+    "Check 1 MB 1lane @ presc=203 data is incrementing pattern":
+        _make_incrementing(203, "1lane"),
+    "Check 1 MB 1lane @ presc=203 rate within wire envelope":
+        _make_in_band(203, "1lane"),
+    "Check 1 MB quad @ presc=203 bench completes":
+        _make_completes(203, "quad"),
+    "Check 1 MB quad @ presc=203 data is incrementing pattern":
+        _make_incrementing(203, "quad"),
+    "Check 1 MB quad @ presc=203 rate within wire envelope":
+        _make_in_band(203, "quad"),
+    "Check 1 MB 1lane @ presc=63 bench completes":
+        _make_completes(63, "1lane"),
+    "Check 1 MB 1lane @ presc=63 data is incrementing pattern":
+        _make_incrementing(63, "1lane"),
+    "Check 1 MB 1lane @ presc=63 rate within wire envelope":
+        _make_in_band(63, "1lane"),
+    "Check 1 MB quad @ presc=63 bench completes":
+        _make_completes(63, "quad"),
+    "Check 1 MB quad @ presc=63 data is incrementing pattern":
+        _make_incrementing(63, "quad"),
+    "Check 1 MB quad @ presc=63 rate within wire envelope":
+        _make_in_band(63, "quad"),
+    "Check 1 MB 1lane @ presc=15 bench completes":
+        _make_completes(15, "1lane"),
+    "Check 1 MB 1lane @ presc=15 data is incrementing pattern":
+        _make_incrementing(15, "1lane"),
+    "Check 1 MB 1lane @ presc=15 rate within wire envelope":
+        _make_in_band(15, "1lane"),
+    "Check 1 MB quad @ presc=15 bench completes":
+        _make_completes(15, "quad"),
+    "Check 1 MB quad @ presc=15 data is incrementing pattern":
+        _make_incrementing(15, "quad"),
+    "Check 1 MB quad @ presc=15 rate within wire envelope":
+        _make_in_band(15, "quad"),
+    "Check 1 MB 1lane @ presc=5 bench completes":
+        _make_completes(5, "1lane"),
+    "Check 1 MB 1lane @ presc=5 data is incrementing pattern":
+        _make_incrementing(5, "1lane"),
+    "Check 1 MB 1lane @ presc=5 rate within wire envelope":
+        _make_in_band(5, "1lane"),
+    "Check 1 MB quad @ presc=5 bench completes":
+        _make_completes(5, "quad"),
+    "Check 1 MB quad @ presc=5 data is incrementing pattern":
+        _make_incrementing(5, "quad"),
+    "Check 1 MB quad @ presc=5 rate within wire envelope":
+        _make_in_band(5, "quad"),
+    # Block 10: combined sweep (existing).
     "Check 1 MB scan completes 6 single-lane benches":
         check_1mb_scan_1lane_count,
     "Check 1 MB scan completes 6 quad-lane benches":

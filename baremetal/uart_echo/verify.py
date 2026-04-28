@@ -52,7 +52,7 @@ def check_unknown():
 
 
 def check_ddr():
-    return _expect(b"SUCCESS: Byte 0 worked", "ddrtest SUCCESS")
+    return _expect(b"DDR PRBS: 1 MB OK", "DDR PRBS 1 MB OK")
 
 
 DISPATCH = {
@@ -61,7 +61,8 @@ DISPATCH = {
     "Check typed characters echoed back to the host":        check_echo,
     "Check unknown-command line produced `Unknown command '...'`":
                                                              check_unknown,
-    "Check `ddrtest` reported SUCCESS at `0xC0001000`":      check_ddr,
+    "Check `ddrtest` wrote and read back 1 MB of PRBS without mismatch":
+                                                             check_ddr,
 }
 
 

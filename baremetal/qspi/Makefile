@@ -1,3 +1,8 @@
+# Default board: EVB (STM32MP135F-DK).  Override with `make BOARD_DEFINE=`
+# (empty) for the SR835-MB pinout.
+BOARD_DEFINE ?= -DEVB
+CFLAGS_EXTRA += $(BOARD_DEFINE)
+
 DIRS := src drivers utils
 HDR := $(wildcard $(addsuffix /*.h,$(DIRS)))
 SRC := $(wildcard $(addsuffix /*.c,$(DIRS)))

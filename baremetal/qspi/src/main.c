@@ -12,6 +12,7 @@
  */
 
 #include "cli.h"
+#include "ddr.h"
 #include "printf.h"
 #include "qspi.h"
 #include "setup.h"
@@ -28,8 +29,8 @@ int main(void)
    etzpc_init();
    gic_init();
    gpio_init();
-   /* mmu_init() omitted -- bootloader's translation table assumes DDR
-    * is up; this demo runs from SYSRAM only and doesn't need MMU. */
+   ddr_init();
+   mmu_init();
 
    my_printf("\r\nqspi bring-up\r\n");
 

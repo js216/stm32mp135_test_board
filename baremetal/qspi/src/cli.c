@@ -392,41 +392,49 @@ static void cmd_bench(int argc, char **argv)
    const uint8_t dummy   = 8U;
 
    uint32_t crc = 0, firsterr = 0, dt = 0;
-   uint8_t  fe_got = 0;
+   uint8_t  got16[16] = {0};
+   my_printf("BENCHDBG cmd_pre t=%lu len=%lu quad=%lu opcode=%02x "
+             "presc=%lu\r\n",
+             (unsigned long)HAL_GetTick(), (unsigned long)len,
+             (unsigned long)quad, (unsigned)opcode,
+             (unsigned long)qspi_get_prescaler());
    HAL_StatusTypeDef s = qspi_bench_read(opcode, dl, dummy, len,
-                                         &crc, &firsterr, &fe_got, &dt);
+                                         &crc, &firsterr, got16, &dt);
+   my_printf("BENCHDBG cmd_post t=%lu rc=%d dt=%lu firsterr=%ld\r\n",
+             (unsigned long)HAL_GetTick(), (int)s, (unsigned long)dt,
+             (firsterr == 0xFFFFFFFFU) ? -1L : (long)firsterr);
    if (s != HAL_OK) {
       my_printf("ERR bench (%d)\r\n", (int)s);
       busy_flag = false;
       return;
    }
    if (dt == 0U) dt = 1U;
-   uint32_t kbps = (len + dt * 512U) / (dt * 1024U);
-   /* Avoid 32-bit overflow in (len * 1000) for len >= 4 MB. */
-   if (len <= 4000000U)
-      kbps = (len * 1000U) / (dt * 1024U);
+   /* Mbps in tenths: rate (Mbits/s * 10) = len * 8 * 10 / (dt * 1000)
+    *               = len / (dt * 12.5)   ~=  len * 80 / (dt * 1000).
+    * Guard the multiplication against 32-bit overflow for len up to 50 MB. */
+   uint32_t mbps_x10;
+   if (len <= 50000000U)
+      mbps_x10 = (len * 80U) / (dt * 1000U);
    else
-      kbps = ((len / 1024U) * 1000U) / dt;
-   if (firsterr == 0xFFFFFFFFU) {
-      my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu KB/s, "
-                "crc32=%08lx, firsterr=-1\r\n",
-                (unsigned long)len,
-                quad ? "quad" : "1lane",
-                (unsigned long)qspi_get_prescaler(),
-                (unsigned long)dt, (unsigned long)kbps,
-                (unsigned long)crc);
-   } else {
-      const uint8_t exp = (uint8_t)(firsterr & 0xFFU);
-      my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu KB/s, "
-                "crc32=%08lx, firsterr=%lu (exp=%02x got=%02x)\r\n",
-                (unsigned long)len,
-                quad ? "quad" : "1lane",
-                (unsigned long)qspi_get_prescaler(),
-                (unsigned long)dt, (unsigned long)kbps,
-                (unsigned long)crc,
-                (unsigned long)firsterr,
-                (unsigned)exp, (unsigned)fe_got);
-   }
+      mbps_x10 = ((len / 1000U) * 80U) / dt;
+   const long firsterr_signed =
+       (firsterr == 0xFFFFFFFFU) ? -1L : (long)firsterr;
+   my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu.%lu Mbps, "
+             "crc32=%08lx, firsterr=%ld, got=%02x %02x %02x %02x "
+             "%02x %02x %02x %02x %02x %02x %02x %02x "
+             "%02x %02x %02x %02x\r\n",
+             (unsigned long)len,
+             quad ? "quad" : "1lane",
+             (unsigned long)qspi_get_prescaler(),
+             (unsigned long)dt,
+             (unsigned long)(mbps_x10 / 10U),
+             (unsigned long)(mbps_x10 % 10U),
+             (unsigned long)crc,
+             firsterr_signed,
+             got16[0], got16[1], got16[2], got16[3],
+             got16[4], got16[5], got16[6], got16[7],
+             got16[8], got16[9], got16[10], got16[11],
+             got16[12], got16[13], got16[14], got16[15]);
    busy_flag = false;
 }
 

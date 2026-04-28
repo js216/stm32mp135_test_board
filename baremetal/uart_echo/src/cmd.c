@@ -27,7 +27,7 @@ struct cmd {
 
 static const struct cmd cmd_list[] = {
     {.name = "reset",   .handler = cmd_reset},
-    {.name = "ddrtest", .handler = ddr_align_test},
+    {.name = "ddrtest", .handler = ddr_prbs_test},
 };
 
 static char line_buf[CMD_MAX_LEN];

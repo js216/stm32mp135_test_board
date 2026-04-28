@@ -60,38 +60,85 @@
   Exception handlers
  *----------------------------------------------------------------------------*/
 
+/* uart_ready is set to 1 in src/setup.c::uart4_init() after
+ * HAL_UART_Init succeeds.  Until then, fault handlers must spin
+ * silently (the UART peripheral is not yet usable).  Once it is set,
+ * each handler emits a single-letter marker over UART4 so a captured
+ * UART log proves which fault fired:
+ *   U = undefined instruction
+ *   S = supervisor call
+ *   P = prefetch abort
+ *   D = data abort
+ *   R = reserved
+ *   F = FIQ
+ *   I = unhandled IRQ
+ * Raw register access only -- no HAL, no my_printf, no stack
+ * dependencies beyond what the fault entry already pushed.
+ */
+extern volatile uint8_t uart_ready;
+
+#define UART4_BASE_ADDR  0x40010000UL
+#define UART4_ISR_OFFSET 0x1CUL
+#define UART4_TDR_OFFSET 0x28UL
+#define UART4_ISR_TXE    (1UL << 7)
+
+static void fault_emit(char c)
+{
+   if (!uart_ready)
+      return;
+   volatile uint32_t *isr =
+       (volatile uint32_t *)(UART4_BASE_ADDR + UART4_ISR_OFFSET);
+   volatile uint32_t *tdr =
+       (volatile uint32_t *)(UART4_BASE_ADDR + UART4_TDR_OFFSET);
+   /* Repeat the marker four times so a brief sample window catches it. */
+   for (int rep = 0; rep < 4; rep++) {
+      uint32_t guard = 0;
+      while (!(*isr & UART4_ISR_TXE)) {
+         if (++guard > 1000000UL)
+            return;
+      }
+      *tdr = (uint32_t)(uint8_t)c;
+   }
+}
+
 void undef_handler(void)
 {
+   fault_emit('U');
    while (1)
       ;
 }
 
 void svc_handler(void)
 {
+   fault_emit('S');
    while (1)
       ;
 }
 
 void pabt_handler(void)
 {
+   fault_emit('P');
    while (1)
       ;
 }
 
 void dabt_handler(void)
 {
+   fault_emit('D');
    while (1)
       ;
 }
 
 void rsvd_handler(void)
 {
+   fault_emit('R');
    while (1)
       ;
 }
 
 void fiq_handler(void)
 {
+   fault_emit('F');
    while (1)
       ;
 }

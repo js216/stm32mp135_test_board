@@ -29,6 +29,12 @@
 
 UART_HandleTypeDef huart4;
 
+/* Set to 1 once HAL_UART_Init has succeeded.  Fault handlers in
+ * startup_stm32mp135fxx_ca7.c poll this flag to decide whether it is
+ * safe to push a single ASCII marker char out over UART4 before
+ * spinning, so we get visible evidence a fault triggered. */
+volatile uint8_t uart_ready = 0;
+
 /* No console RX -- the demo never reads from UART4. */
 void UART4_IRQHandler(void)
 {
@@ -269,6 +275,7 @@ void uart4_init(void)
       ERROR("Disable FIFO");
 
    printf_set_output(uart_write_char);
+   uart_ready = 1;
 }
 
 void gic_init(void)
