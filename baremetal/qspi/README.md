@@ -89,7 +89,9 @@ Type a single-letter command (followed by space-separated decimal or
 | `2 <addr> <len>`             | Dual-output read `0x3B`, 2-lane data, 8 dummy    | `op=3b read 16 @ 0x0`      |
 | `3 <addr> <len>`             | Dual-I/O read `0xBB`, alt-byte `0xA0`, 4 dummy   | `op=bb read 16 @ 0x0`      |
 | `M <addr> <len>`             | Memory-mapped read at `0x70000000+addr`          | `MM read 16 @ 0x0`         |
-| `b <len> [quad=0/1]`         | Streaming bench: read N bytes (no buffer cap), validate against incrementing pattern (i & 0xFF), report KB/s + CRC32 + first-error offset | `bench 1048576 B quad in 165 ms, 6362 KB/s, crc32=DEADBEEF, firsterr=-1` |
+| `b <len> [quad=0/1] [raw=0/1]` | Streaming bench: read N bytes (no buffer cap), validate against incrementing pattern (i & 0xFF), report KB/s + CRC32 + first-error offset.  `raw=1` skips IMODE / ADMODE -- only the data-phase bytes hit the wire (matches a generic SPI slave, no flash framing). | `bench 1048576 B quad in 165 ms, 6362 KB/s, crc32=DEADBEEF, firsterr=-1` |
+| `j <len> [quad=0/1]`         | Raw data-only read (IMODE=0, ADMODE=0).  No opcode / address byte on the wire -- just `len` bytes clocked in MISO.  Cap 1024 B | `raw read 16 (1lane)` |
+| `J <b0> [b1...]`             | Raw data-only write.  Bytes are clocked out MOSI with no opcode / address phase | `raw wrote 4 bytes` |
 
 #### Writes / Erase
 
