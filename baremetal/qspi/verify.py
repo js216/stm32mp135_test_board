@@ -235,6 +235,147 @@ def check_throughput():
     return True
 
 
+# --- 1 MB throughput bench (Block 2) ---------------------------------
+
+_BENCH_RE = re.compile(
+    rb"bench (\d+) B (1lane|quad)(?: @ presc=(\d+))? in (\d+) ms,"
+    rb"\s+(\d+) KB/s,\s+crc32=([0-9a-f]+),\s+firsterr=(-?\d+)")
+
+
+def _bench_lines():
+    out = []
+    for m in _BENCH_RE.finditer(_read_uart_raw()):
+        out.append({
+            "len":      int(m.group(1)),
+            "mode":     m.group(2).decode(),
+            "presc":    int(m.group(3)) if m.group(3) else None,
+            "ms":       int(m.group(4)),
+            "kbps":     int(m.group(5)),
+            "crc":      int(m.group(6), 16),
+            "firsterr": int(m.group(7)),
+        })
+    return out
+
+
+def _bench_pick(length, mode):
+    for b in _bench_lines():
+        if b["len"] == length and b["mode"] == mode:
+            return b
+    return None
+
+
+_PRESC_STEPS = [203, 63, 15, 5, 2]
+_PRESC_MHZ   = {203: 1.31, 63: 4.16, 15: 16.6, 5: 44.4, 2: 88.7}
+
+
+def _bench_picks_by_presc(length, mode):
+    """Return list of (presc, bench-dict) for every bench line of the
+    given length and mode that has a presc tag.  In step order."""
+    return [(b["presc"], b) for b in _bench_lines()
+            if b["len"] == length and b["mode"] == mode
+            and b["presc"] is not None]
+
+
+def _scan_runs_by_presc(mode):
+    """Return dict {presc: bench_dict} for the given mode."""
+    return {p: b for p, b in _bench_picks_by_presc(1048576, mode)}
+
+
+def check_1mb_scan_1lane_count():
+    runs = _scan_runs_by_presc("1lane")
+    missing = [p for p in _PRESC_STEPS if p not in runs]
+    sys.stdout.write(
+        f"1lane benches captured: {len(runs)}/{len(_PRESC_STEPS)}\n")
+    for p in _PRESC_STEPS:
+        if p in runs:
+            b = runs[p]
+            sys.stdout.write(f"  presc={p:3d} ({_PRESC_MHZ[p]:.2f} MHz):"
+                             f" {b['ms']} ms, {b['kbps']} KB/s, "
+                             f"firsterr={b['firsterr']}\n")
+        else:
+            sys.stdout.write(f"  presc={p:3d}: MISSING\n")
+    if missing:
+        sys.stderr.write(f"missing 1lane prescalers: {missing}\n")
+        return False
+    return True
+
+
+def check_1mb_scan_quad_count():
+    runs = _scan_runs_by_presc("quad")
+    missing = [p for p in _PRESC_STEPS if p not in runs]
+    sys.stdout.write(
+        f"quad benches captured: {len(runs)}/{len(_PRESC_STEPS)}\n")
+    for p in _PRESC_STEPS:
+        if p in runs:
+            b = runs[p]
+            sys.stdout.write(f"  presc={p:3d} ({_PRESC_MHZ[p]:.2f} MHz):"
+                             f" {b['ms']} ms, {b['kbps']} KB/s, "
+                             f"firsterr={b['firsterr']}\n")
+        else:
+            sys.stdout.write(f"  presc={p:3d}: MISSING\n")
+    if missing:
+        sys.stderr.write(f"missing quad prescalers: {missing}\n")
+        return False
+    return True
+
+
+def check_1mb_scan_all_incrementing():
+    one = _scan_runs_by_presc("1lane")
+    quad = _scan_runs_by_presc("quad")
+    bad = []
+    for p in _PRESC_STEPS:
+        if p not in one or p not in quad:
+            sys.stderr.write(f"presc={p}: missing bench line\n")
+            return False
+        if one[p]["firsterr"] != -1:
+            bad.append(("1lane", p, one[p]["firsterr"]))
+        if quad[p]["firsterr"] != -1:
+            bad.append(("quad", p, quad[p]["firsterr"]))
+    if bad:
+        sys.stderr.write("non-incrementing reads:\n")
+        for mode, p, fe in bad:
+            sys.stderr.write(f"  {mode} presc={p}: firsterr={fe}\n")
+        return False
+    sys.stdout.write("all 10 benches match incrementing pattern\n")
+    return True
+
+
+def check_1mb_scan_quad_faster():
+    one = _scan_runs_by_presc("1lane")
+    quad = _scan_runs_by_presc("quad")
+    bad = []
+    for p in _PRESC_STEPS:
+        if p not in one or p not in quad:
+            sys.stderr.write(f"presc={p}: missing bench line\n")
+            return False
+        if quad[p]["kbps"] <= one[p]["kbps"]:
+            bad.append((p, one[p]["kbps"], quad[p]["kbps"]))
+    if bad:
+        sys.stderr.write("quad not faster than 1lane:\n")
+        for p, o, q in bad:
+            sys.stderr.write(f"  presc={p}: 1lane={o} KB/s quad={q} KB/s\n")
+        return False
+    speedups = [quad[p]["kbps"] / max(1, one[p]["kbps"])
+                for p in _PRESC_STEPS]
+    sys.stdout.write(
+        "quad faster at every step (speedups: "
+        + ", ".join(f"x{s:.2f}" for s in speedups) + ")\n")
+    return True
+
+
+def check_1mb_scan_max_quad_rate():
+    quad = _scan_runs_by_presc("quad")
+    if not quad:
+        sys.stderr.write("no quad bench lines\n")
+        return False
+    best_p = min(quad.keys(), key=lambda p: -quad[p]["kbps"])
+    best = quad[best_p]
+    sys.stdout.write(
+        f"max quad rate: {best['kbps']} KB/s ({best['kbps']/1024:.2f} MB/s)"
+        f" at presc={best_p} ({_PRESC_MHZ.get(best_p, 0):.2f} MHz)\n")
+    return best["kbps"] > 0
+
+
 # --- JEDEC plausibility ----------------------------------------------
 
 def check_jedec_plausible():
@@ -1422,6 +1563,17 @@ DISPATCH = {
     "Check FPGA UART captured op=9f frames from the JEDEC loop":
         check_fpga_jedec_frames,
     # Block 2
+    "Check 1 MB scan completes 5 single-lane benches":
+        check_1mb_scan_1lane_count,
+    "Check 1 MB scan completes 5 quad-lane benches":
+        check_1mb_scan_quad_count,
+    "Check 1 MB scan all bytes match incrementing pattern at every step":
+        check_1mb_scan_all_incrementing,
+    "Check quad-lane is faster than single-lane at every step":
+        check_1mb_scan_quad_faster,
+    "Check max quad-lane throughput at the highest scanned SCLK":
+        check_1mb_scan_max_quad_rate,
+    # Block 3
     "Check SFDP signature is 53 46 44 50": check_sfdp_signature,
     "Check SFDP first parameter header is BFPT (id-lsb 0x00)":
         check_sfdp_first_param_bfpt,
@@ -1430,100 +1582,100 @@ DISPATCH = {
     "Check SFDP BFPT density matches JEDEC capacity":
         check_sfdp_bfpt_density,
     "Check SFDP BFPT has a sane QER field": check_sfdp_bfpt_qer,
-    # Block 3
-    "Check WEL bit follows WREN and WRDI": check_wel_lifecycle,
     # Block 4
-    "Check sector erased region reads all ff": check_sector_erase_ff,
+    "Check WEL bit follows WREN and WRDI": check_wel_lifecycle,
     # Block 5
+    "Check sector erased region reads all ff": check_sector_erase_ff,
+    # Block 6
     "Check page program read-back equals i and 0xff pattern":
         check_pp_pattern,
-    # Block 6
+    # Block 7
     "Check quad-output read matches 1-lane read at 0x100":
         check_quad_matches_1lane_at_100,
-    # Block 7
+    # Block 8
     "Check quad-IO read matches 1-lane read at 0x100":
         check_quad_io_matches_1lane_at_100,
-    # Block 8
+    # Block 9
     "Check quad-input PP read-back equals 0xc0+i&0xf pattern":
         check_qpp_pattern,
-    # Block 9
-    "Check block erased region reads all ff": check_block_erase_ff,
     # Block 10
+    "Check block erased region reads all ff": check_block_erase_ff,
+    # Block 11
     "Check memory-mapped read matches 1-lane read at 0x300":
         check_mm_matches_1lane_at_300,
-    # Block 11
+    # Block 12
     "Check autopoll after sector erase reports non-zero ms":
         check_autopoll_post_erase_nonzero,
-    # Block 12
+    # Block 13
     "Check chip erase spot 0x0 reads all ff": check_chip_erase_spot_0,
     "Check chip erase spot 0x10000 reads all ff":
         check_chip_erase_spot_10000,
     "Check chip erase spot 0x100000 reads all ff":
         check_chip_erase_spot_100000,
-    # Block 13
+    # Block 14
     "Check DPD silences JEDEC ID and release restores it":
         check_dpd_silences_then_release_restores,
-    # Block 14
-    "Check soft reset clears WEL bit": check_soft_reset_clears_wel,
     # Block 15
+    "Check soft reset clears WEL bit": check_soft_reset_clears_wel,
+    # Block 16
     "Check dual-output read matches 1-lane read at 0x400":
         check_dual_matches_1lane_at_400,
     "Check dual-IO read matches 1-lane read at 0x400":
         check_dual_io_matches_1lane_at_400,
-    # Block 16
+    # Block 17
     "Check fast read matches 1-lane read at 0x500":
         check_fast_matches_1lane_at_500,
     "Check autopoll TIMEOUT response": check_autopoll_timeout,
-    # Block 17
+    # Block 18
     "Check QE bit set then quad-output read matches 1-lane read":
         check_qe_quad_read_consistent,
-    # Block 18
+    # Block 19
     "Check page-program does not cross page boundary at 0x100":
         check_pp_no_cross_page,
-    # Block 19
+    # Block 20
     "Check sector erase preserves adjacent 4 KB sector":
         check_sector_erase_granularity,
-    # Block 20
+    # Block 21
     "Check all read opcodes return identical bytes at 0x700":
         check_read_opcode_parity,
-    # Block 21
+    # Block 22
     "Check WIP is 1 immediately after sector erase":
         check_wip_during_erase,
     "Check autopoll after sector erase reports >= 10 ms":
         check_autopoll_erase_min_ms,
-    # Block 22
+    # Block 23
     "Check WRSR value does not survive soft reset":
         check_wrsr_not_persistent,
-    # Block 23
+    # Block 24
     "Check page program without WREN is a no-op":
         check_pp_without_wren_noop,
-    # Block 24
+    # Block 25
     "Check distinct programmed regions are independently addressable":
         check_capacity_independent_regions,
     "Check Linux readiness composite": check_linux_readiness,
-    # Block 25
+    # Block 26
     "Check FPGA decoded op=9f frame length is 4": check_fpga_op9f_len4,
     "Check FPGA decoded op=06 frame length is 1": check_fpga_op06_len1,
     "Check FPGA decoded op=02 frame length is 20": check_fpga_op02_len20,
-    # Block 26
+    # Block 27
     "Check FPGA op=06 MOSI CRC matches host CRC32 of opcode-only frame":
         check_fpga_op06_crc,
     "Check FPGA op=02 MOSI CRC matches host CRC32 of opcode addr data":
         check_fpga_op02_crc,
-    # Block 27
+    # Block 28
     "Check FPGA logs three op=9f frames in rapid succession":
         check_fpga_three_op9f,
     "Check FPGA op=9f frames have consistent length and CRC":
         check_fpga_op9f_consistent,
-    # Block 28
+    # Block 29
     "Check FPGA logs op=77 frame for unsupported opcode":
         check_fpga_op77_logged,
     "Check FPGA still answers op=9f after unsupported opcode":
         check_fpga_op9f_after_op77,
-    # Block 29
+    # Block 30
     "Check FPGA logs at least one op=03 frame from bench burst":
         check_fpga_burst_op03,
-    # Block 30
+    # Block 31
     "Check FPGA op=9f MOSI CRC matches host CRC32 of opcode-only frame":
         check_fpga_op9f_crc_only,
     "Check FPGA op=0b frame bytes=21 and CRC matches opcode plus address":
@@ -1536,33 +1688,33 @@ DISPATCH = {
         check_fpga_opbb_bytes_crc,
     "Check FPGA op=eb frame bytes=6 and CRC matches opcode plus address plus alt":
         check_fpga_opeb_bytes_crc,
-    # Block 31
+    # Block 32
     "Check WEL set after WREN before PP": check_wel_set_before_pp,
     "Check WEL auto-clears after PP completes": check_wel_clear_after_pp,
-    # Block 32
+    # Block 33
     "Check FPGA frame count unchanged across the partial-byte CS abort":
         check_fpga_cs_abort_no_phantom,
     "Check FPGA op=9f frame appears after the CS-abort sequence":
         check_fpga_op9f_after_cs_abort,
-    # Block 33
+    # Block 34
     "Check page buffer wraps within the 16-byte boundary on PP":
         check_pp_page_buffer_wrap,
-    # Block 34
+    # Block 35
     "Check FPGA logs at least 100 op=9f frames in a sustained burst":
         check_fpga_jedec_burst_100,
     "Check every op=9f frame in the burst has bytes=4 and matching CRC":
         check_fpga_jedec_burst_consistent,
-    # Block 35
+    # Block 36
     "Check FPGA logs at least 25 op=9f and 25 op=06 frames in the mix":
         check_fpga_mixed_burst_counts,
     "Check mixed-burst op=9f frames are bytes=4 and op=06 frames are bytes=1":
         check_fpga_mixed_burst_lengths,
-    # Block 36
+    # Block 37
     "Check WIP is 1 immediately after page program kickoff":
         check_wip_during_pp,
     "Check autopoll after page program reports >= 1 ms":
         check_autopoll_pp_min_ms,
-    # Block 37
+    # Block 38
     "Check quad bench rate is at least 4 MB/s":
         check_quad_bench_throughput,
     "Check quad bench CRC32 matches the QPP read-back pattern":

@@ -61,9 +61,9 @@ After flashing, the serial console prints:
     qspi bring-up
     qspi: presc=203 fsize=23 csht=1
     >
-    JEDEC ID: aa 55 01  (NNNN reads)
+    JEDEC ID: 20 20 14  (NNNN reads)
     >
-    JEDEC ID: aa 55 01  (NNNN reads)
+    JEDEC ID: 20 20 14  (NNNN reads)
     ...
 
 Type a single-letter command (followed by space-separated decimal or
@@ -73,7 +73,7 @@ Type a single-letter command (followed by space-separated decimal or
 
 | Cmd                | Description                              | Example response              |
 |--------------------|------------------------------------------|-------------------------------|
-| `i`                | JEDEC RDID `0x9F`, returns 3 bytes       | `JEDEC ID: aa 55 01`          |
+| `i`                | JEDEC RDID `0x9F`, returns 3 bytes       | `JEDEC ID: 20 20 14`          |
 | `f <addr> <len>`   | SFDP `0x5A` + 24-bit addr + 8 dummy      | `SFDP @ 0x00000000 (16 bytes)` |
 | `s [opc=0x05]`     | Opcode-then-1-byte (default RDSR)        | `op=05 -> ff`                 |
 | `?`                | busy / prescaler / fsize / CS-high cycles| `busy=0 presc=203 fsize=23 csht=1` |
@@ -89,7 +89,7 @@ Type a single-letter command (followed by space-separated decimal or
 | `2 <addr> <len>`             | Dual-output read `0x3B`, 2-lane data, 8 dummy    | `op=3b read 16 @ 0x0`      |
 | `3 <addr> <len>`             | Dual-I/O read `0xBB`, alt-byte `0xA0`, 4 dummy   | `op=bb read 16 @ 0x0`      |
 | `M <addr> <len>`             | Memory-mapped read at `0x70000000+addr`          | `MM read 16 @ 0x0`         |
-| `b <len> [quad=0/1]`         | Bench: time read (1-lane or quad-output), throughput, CRC32, first-error | `bench 256 B 1lane in N ms, ...` |
+| `b <len> [quad=0/1]`         | Streaming bench: read N bytes (no buffer cap), validate against incrementing pattern (i & 0xFF), report KB/s + CRC32 + first-error offset | `bench 1048576 B quad in 165 ms, 6362 KB/s, crc32=DEADBEEF, firsterr=-1` |
 
 #### Writes / Erase
 
@@ -128,35 +128,6 @@ Type a single-letter command (followed by space-separated decimal or
 | `x`  | Abort current xfer + drain RX FIFO  |
 | `h`  | Print this help                     |
 
-#### Linux compatibility
-
-When every block of `### Automated Test` (below) passes, the slave is
-functionally compatible with Linux's `m25p80` / `spi-nor` driver and
-can be mounted as an MTD device with no manual quirks.  A device-tree
-fragment of the form
-
-    &qspi {
-        flash@0 {
-            compatible = "jedec,spi-nor";
-            reg = <0>;
-            spi-max-frequency = <50000000>;
-        };
-    };
-
-is sufficient -- no `m25p,nonjedec` workarounds, no fixed-flash-info
-table entries, no quirks list.  The composite "Linux readiness" bullet
-fails if any JEDEC / SFDP / WEL / WIP / erase / program / read-parity
-/ QE / page-wrap / reset sub-check fails.
-
-The suite also asserts the slave's framing from the FPGA side: every
-block opens `fpga:uart_open` alongside the MP135 UART, and parses the
-slave's `op=<hh> bytes=<K> mosi_crc=<8hex>` frame log.  Per-frame
-checks compare the slave's reported byte count and MOSI CRC-32 (IEEE
-802.3 reflected, init / xorout `0xFFFFFFFF`, polynomial `0xEDB88320`)
-against what the host actually emitted on the wire.  A passing run
-means framing, opcode decode, byte counting, and the CRC engine are
-all correct end-to-end.
-
 ### Automated Test
 
 The suite enforces real NOR-flash semantics on the QSPI slave: each
@@ -168,8 +139,21 @@ implements the JEDEC and JESD216 contracts.
 
 Each block reflashes the MP135 via DFU and resets it.  The flash slave
 itself is not power-cycled between blocks, so block N+1 sees whatever
-state block N left behind.  After the JEDEC plausibility block, every
-non-chip-erase block starts by chip-erasing to a known all-`ff` state.
+state block N left behind.  Blocks that depend on a known starting
+state begin with `e 0x06 + C + C + P` (WREN + chip erase + poll WIP)
+to drive the slave to all-`ff`.  Blocks that don't write (Block 1
+JEDEC, Block 2 throughput, Block 3 SFDP, Block 13 DPD, Block 22 reset
+state, Block 27 back-to-back stress, etc.) skip the chip-erase
+preamble.
+
+A flash that is intentionally read-only -- for example a slave with
+all status-register block-protect bits permanently set, or a
+mask-ROM-style device with fixed data -- will fail the program /
+erase blocks (4, 5, 8, 9, 12, 17, 18, 19, 21, 23, 31, 33, 36, 37)
+and that is correct.  Such a slave is still usable as a Linux MTD
+device in read-only mode; the failing blocks are the precise
+conformance gap that distinguishes "read-only flash" from
+"read-write flash".
 
 Block 1 -- firmware alive, JEDEC loop, throughput.
 
@@ -193,7 +177,73 @@ fpga:uart_close
 - Check JEDEC capacity exponent indicates >= 128 KB
 - Check FPGA UART captured op=9f frames from the JEDEC loop
 
-Block 2 -- SFDP signature, header, BFPT pointer, and BFPT contents.
+Block 2 -- 1 MB read throughput across a sweep of SCLK frequencies,
+single-lane and quad-lane at each step.  Quadspi_ker_ck = 204 MHz on
+this project; SCLK = ker_ck / (prescaler + 1).  Sweeps prescaler in 5
+steps from the safe baseline (1.3 MHz) up to ~89 MHz (just below the
+chip's `Fmax_QSPI=133 MHz` spec edge),
+running fast-read 0x0B (1-lane) and quad-output 0x6B (4-lane data) at
+each.  The slave is expected to return the incrementing pattern
+(bytes 0, 1, 2, ..., 255, 0, 1, ...) over the whole address space.
+
+| Prescaler | SCLK     |
+|-----------|----------|
+| 203       | ~1.31 MHz   |
+| 63        | ~4.16 MHz   |
+| 15        | ~16.6 MHz   |
+| 5         | ~44.4 MHz   |
+| 2         | ~88.7 MHz (max safe; 133 MHz chip spec edge requires SSHIFT) |
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=200
+mp135:uart_write data="p 203\r"
+delay ms=100
+mp135:uart_write data="b 1048576 0\r"
+mp135:uart_expect sentinel="1lane @ presc=203" timeout_ms=20000
+mp135:uart_write data="b 1048576 1\r"
+mp135:uart_expect sentinel="quad @ presc=203" timeout_ms=20000
+mp135:uart_write data="p 63\r"
+delay ms=100
+mp135:uart_write data="b 1048576 0\r"
+mp135:uart_expect sentinel="1lane @ presc=63" timeout_ms=10000
+mp135:uart_write data="b 1048576 1\r"
+mp135:uart_expect sentinel="quad @ presc=63" timeout_ms=10000
+mp135:uart_write data="p 15\r"
+delay ms=100
+mp135:uart_write data="b 1048576 0\r"
+mp135:uart_expect sentinel="1lane @ presc=15" timeout_ms=5000
+mp135:uart_write data="b 1048576 1\r"
+mp135:uart_expect sentinel="quad @ presc=15" timeout_ms=5000
+mp135:uart_write data="p 5\r"
+delay ms=100
+mp135:uart_write data="b 1048576 0\r"
+mp135:uart_expect sentinel="1lane @ presc=5" timeout_ms=10000
+mp135:uart_write data="b 1048576 1\r"
+mp135:uart_expect sentinel="quad @ presc=5" timeout_ms=10000
+mp135:uart_write data="p 2\r"
+delay ms=100
+mp135:uart_write data="b 1048576 0\r"
+mp135:uart_expect sentinel="1lane @ presc=2" timeout_ms=10000
+mp135:uart_write data="b 1048576 1\r"
+mp135:uart_expect sentinel="quad @ presc=2" timeout_ms=10000
+mp135:uart_write data="p 203\r"
+delay ms=200
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check 1 MB scan completes 5 single-lane benches
+- Check 1 MB scan completes 5 quad-lane benches
+- Check 1 MB scan all bytes match incrementing pattern at every step
+- Check quad-lane is faster than single-lane at every step
+- Check max quad-lane throughput at the highest scanned SCLK
+
+Block 4 -- SFDP signature, header, BFPT pointer, and BFPT contents.
 Read enough SFDP bytes to cover the header (8 B), first parameter
 header (8 B at offset 8), and a generous BFPT slab.  `r` caps at 1024
 bytes per call, so use multiple ranged SFDP reads from offsets 0x00,
@@ -227,7 +277,7 @@ fpga:uart_close
 - Check SFDP BFPT density matches JEDEC capacity
 - Check SFDP BFPT has a sane QER field
 
-Block 3 -- WEL toggles correctly via WREN/WRDI.
+Block 4 -- WEL toggles correctly via WREN/WRDI.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -252,7 +302,7 @@ fpga:uart_close
 
 - Check WEL bit follows WREN and WRDI
 
-Block 4 -- sector erase + read-back yields 0xff.
+Block 5 -- sector erase + read-back yields 0xff.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -275,7 +325,7 @@ fpga:uart_close
 
 - Check sector erased region reads all ff
 
-Block 5 -- page program + read-back yields the i&0xff pattern.
+Block 6 -- page program + read-back yields the i&0xff pattern.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -306,7 +356,7 @@ fpga:uart_close
 
 - Check page program read-back equals i and 0xff pattern
 
-Block 6 -- quad-output read returns same data as 1-lane read.
+Block 7 -- quad-output read returns same data as 1-lane read.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -339,7 +389,7 @@ fpga:uart_close
 
 - Check quad-output read matches 1-lane read at 0x100
 
-Block 7 -- quad-I/O read returns same data as 1-lane read.
+Block 8 -- quad-I/O read returns same data as 1-lane read.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -372,7 +422,7 @@ fpga:uart_close
 
 - Check quad-IO read matches 1-lane read at 0x100
 
-Block 8 -- quad-input PP + read-back yields the 0xc0+i&0xf pattern.
+Block 9 -- quad-input PP + read-back yields the 0xc0+i&0xf pattern.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -403,7 +453,7 @@ fpga:uart_close
 
 - Check quad-input PP read-back equals 0xc0+i&0xf pattern
 
-Block 9 -- block erase 64K + read-back yields 0xff.
+Block 10 -- block erase 64K + read-back yields 0xff.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -426,7 +476,7 @@ fpga:uart_close
 
 - Check block erased region reads all ff
 
-Block 10 -- memory-mapped read matches 1-lane read.
+Block 11 -- memory-mapped read matches 1-lane read.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -459,7 +509,7 @@ fpga:uart_close
 
 - Check memory-mapped read matches 1-lane read at 0x300
 
-Block 11 -- autopoll reports a non-trivial wait after a real erase.
+Block 12 -- autopoll reports a non-trivial wait after a real erase.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -480,7 +530,7 @@ fpga:uart_close
 
 - Check autopoll after sector erase reports non-zero ms
 
-Block 12 -- chip erase + spot reads everywhere yield 0xff.
+Block 13 -- chip erase + spot reads everywhere yield 0xff.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -511,7 +561,7 @@ fpga:uart_close
 - Check chip erase spot 0x10000 reads all ff
 - Check chip erase spot 0x100000 reads all ff
 
-Block 13 -- DPD silences RDID, release restores it.
+Block 14 -- DPD silences RDID, release restores it.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -536,7 +586,7 @@ fpga:uart_close
 
 - Check DPD silences JEDEC ID and release restores it
 
-Block 14 -- soft reset clears WEL.
+Block 15 -- soft reset clears WEL.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -557,7 +607,7 @@ fpga:uart_close
 
 - Check soft reset clears WEL bit
 
-Block 15 -- dual-output and dual-I/O reads match 1-lane read.
+Block 16 -- dual-output and dual-I/O reads match 1-lane read.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -593,7 +643,7 @@ fpga:uart_close
 - Check dual-output read matches 1-lane read at 0x400
 - Check dual-IO read matches 1-lane read at 0x400
 
-Block 16 -- fast read 0x0B matches 1-lane read; autopoll TIMEOUT path
+Block 17 -- fast read 0x0B matches 1-lane read; autopoll TIMEOUT path
 fires when the match condition is unreachable (WIP=1 forever).
 
 ```
@@ -630,7 +680,7 @@ fpga:uart_close
 - Check fast read matches 1-lane read at 0x500
 - Check autopoll TIMEOUT response
 
-Block 17 -- QE bit lifecycle: setting QE in SR makes quad reads work.
+Block 18 -- QE bit lifecycle: setting QE in SR makes quad reads work.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -669,7 +719,7 @@ fpga:uart_close
 
 - Check QE bit set then quad-output read matches 1-lane read
 
-Block 18 -- page-program boundary wrap at offset 0xF8 across 0x100.
+Block 19 -- page-program boundary wrap at offset 0xF8 across 0x100.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -706,7 +756,7 @@ fpga:uart_close
 
 - Check page-program does not cross page boundary at 0x100
 
-Block 19 -- sector erase granularity: only the first 4K is erased.
+Block 20 -- sector erase granularity: only the first 4K is erased.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -751,7 +801,7 @@ fpga:uart_close
 
 - Check sector erase preserves adjacent 4 KB sector
 
-Block 20 -- read-opcode parity: every read path returns the same bytes.
+Block 21 -- read-opcode parity: every read path returns the same bytes.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -800,7 +850,7 @@ fpga:uart_close
 
 - Check all read opcodes return identical bytes at 0x700
 
-Block 21 -- WIP during erase, then real wait time.
+Block 22 -- WIP during erase, then real wait time.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -823,7 +873,7 @@ fpga:uart_close
 - Check WIP is 1 immediately after sector erase
 - Check autopoll after sector erase reports >= 10 ms
 
-Block 22 -- WRSR not persistent across soft reset.
+Block 23 -- WRSR not persistent across soft reset.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -850,7 +900,7 @@ fpga:uart_close
 
 - Check WRSR value does not survive soft reset
 
-Block 23 -- write without WREN is a no-op.
+Block 24 -- write without WREN is a no-op.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -881,7 +931,7 @@ fpga:uart_close
 
 - Check page program without WREN is a no-op
 
-Block 24 -- capacity round-trip: chip is addressable up to its declared
+Block 25 -- capacity round-trip: chip is addressable up to its declared
 size.
 
 ```
@@ -924,7 +974,7 @@ fpga:uart_close
 - Check distinct programmed regions are independently addressable
 - Check Linux readiness composite
 
-Block 25 -- FPGA frame length matches host on JEDEC and PP.
+Block 26 -- FPGA frame length matches host on JEDEC and PP.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -949,7 +999,7 @@ fpga:uart_close
 - Check FPGA decoded op=06 frame length is 1
 - Check FPGA decoded op=02 frame length is 20
 
-Block 26 -- FPGA MOSI CRC round-trip on a deterministic write.
+Block 27 -- FPGA MOSI CRC round-trip on a deterministic write.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -971,7 +1021,7 @@ fpga:uart_close
 - Check FPGA op=06 MOSI CRC matches host CRC32 of opcode-only frame
 - Check FPGA op=02 MOSI CRC matches host CRC32 of opcode addr data
 
-Block 27 -- back-to-back JEDEC reads framed independently.
+Block 28 -- back-to-back JEDEC reads framed independently.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -989,7 +1039,7 @@ fpga:uart_close
 - Check FPGA logs three op=9f frames in rapid succession
 - Check FPGA op=9f frames have consistent length and CRC
 
-Block 28 -- unsupported opcode framed without crashing the slave.
+Block 29 -- unsupported opcode framed without crashing the slave.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -1009,7 +1059,7 @@ fpga:uart_close
 - Check FPGA logs op=77 frame for unsupported opcode
 - Check FPGA still answers op=9f after unsupported opcode
 
-Block 29 -- bench long-burst frame count.
+Block 30 -- bench long-burst frame count.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -1026,7 +1076,7 @@ fpga:uart_close
 
 - Check FPGA logs at least one op=03 frame from bench burst
 
-Block 30 -- per-opcode FPGA frame length and MOSI CRC for every read
+Block 31 -- per-opcode FPGA frame length and MOSI CRC for every read
 opcode.  The slave's `byte_cnt` advances every 8 SCLK rises, so a
 multi-lane data phase yields fewer single-lane byte equivalents than
 the on-the-wire data byte count; the MOSI CRC scope excludes any byte
@@ -1069,7 +1119,7 @@ fpga:uart_close
 - Check FPGA op=bb frame bytes=10 and CRC matches opcode plus address plus alt
 - Check FPGA op=eb frame bytes=6 and CRC matches opcode plus address plus alt
 
-Block 31 -- WEL auto-clears on successful page-program completion.
+Block 32 -- WEL auto-clears on successful page-program completion.
 A real flash drops both WIP and WEL when PP finishes; the host
 should see WEL=1 after WREN, WEL=1 (with WIP=1) during PP, and
 WEL=0 (with WIP=0) once autopoll exits.
@@ -1106,7 +1156,7 @@ fpga:uart_close
 - Check WEL set after WREN before PP
 - Check WEL auto-clears after PP completes
 
-Block 32 -- mid-frame CS deassert does not crash or mis-frame.
+Block 33 -- mid-frame CS deassert does not crash or mis-frame.
 Driving CLK partway through a byte then raising NCS must reset
 the slave's capture state cleanly.  No bogus frame should be
 emitted, and a follow-up `i` must produce a normal op=9f frame.
@@ -1151,7 +1201,7 @@ fpga:uart_close
 - Check FPGA frame count unchanged across the partial-byte CS abort
 - Check FPGA op=9f frame appears after the CS-abort sequence
 
-Block 33 -- page buffer wraps at the 16-byte boundary on PP.
+Block 34 -- page buffer wraps at the 16-byte boundary on PP.
 Pre-program 0x00..0x0F with 0xAA, then PP 8 bytes starting at
 0x0F.  The slave's address-low[3:0] index wraps, so byte 0 of the
 write lands at 0x0F and bytes 1..7 wrap back to 0x00..0x06.
@@ -1191,7 +1241,7 @@ fpga:uart_close
 
 - Check page buffer wraps within the 16-byte boundary on PP
 
-Block 34 -- sustained back-to-back JEDEC stress.  100 `i` keystrokes
+Block 35 -- sustained back-to-back JEDEC stress.  100 `i` keystrokes
 fire as one UART burst; the slave must frame each one independently.
 
 ```
@@ -1210,7 +1260,7 @@ fpga:uart_close
 - Check FPGA logs at least 100 op=9f frames in a sustained burst
 - Check every op=9f frame in the burst has bytes=4 and matching CRC
 
-Block 35 -- mixed-opcode burst interleaves WREN and JEDEC.
+Block 36 -- mixed-opcode burst interleaves WREN and JEDEC.
 
 ```
 bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
@@ -1228,7 +1278,7 @@ fpga:uart_close
 - Check FPGA logs at least 25 op=9f and 25 op=06 frames in the mix
 - Check mixed-burst op=9f frames are bytes=4 and op=06 frames are bytes=1
 
-Block 36 -- WIP polled mid page-program reports busy.  Real flash
+Block 37 -- WIP polled mid page-program reports busy.  Real flash
 drives WIP=1 throughout the PP cycle (~ms range); a stubbed slave
 that completes instantly fails this assertion.
 
@@ -1253,7 +1303,7 @@ fpga:uart_close
 - Check WIP is 1 immediately after page program kickoff
 - Check autopoll after page program reports >= 1 ms
 
-Block 37 -- quad-bench throughput floor at high SCLK.  Re-init at
+Block 38 -- quad-bench throughput floor at high SCLK.  Re-init at
 prescaler 1 (~102 MHz SCLK), run a 4 KB quad bench, parse the rate
 line, then restore safe speed.  At quad mode with 1L instruction +
 3-byte addr + dummy, the steady-state data rate is roughly
@@ -1267,7 +1317,7 @@ fpga:uart_open
 mp135:uart_open
 mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
 delay ms=300
-mp135:uart_write data="p 1\r"
+mp135:uart_write data="p 2\r"
 delay ms=300
 mp135:uart_write data="b 4096 1\r"
 delay ms=2000

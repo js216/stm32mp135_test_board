@@ -71,6 +71,15 @@ HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
 void qspi_abort(void);
 int qspi_busy(void);
 
+/* Streaming bench read: programs CCR/DLR/AR once, byte-serial drains DR
+ * for `len` bytes (no buffer allocation), validates against expected
+ * pattern `i & 0xFF` (incrementing).  Returns CRC32, first-error
+ * offset (0xFFFFFFFF if all match), and elapsed milliseconds. */
+HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
+                                  uint8_t dummy_cycles, uint32_t len,
+                                  uint32_t *crc_out, uint32_t *first_err_out,
+                                  uint32_t *elapsed_ms_out);
+
 /* Accessors used by the CLI '?' command. */
 uint32_t qspi_get_prescaler(void);
 uint32_t qspi_get_fsize(void);

@@ -289,3 +289,111 @@ HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
    qspi_abort();
    return HAL_OK;
 }
+
+HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
+                                  uint8_t dummy_cycles, uint32_t len,
+                                  uint32_t *crc_out, uint32_t *first_err_out,
+                                  uint32_t *elapsed_ms_out)
+{
+   if (!initialised || len == 0)
+      return HAL_ERROR;
+
+   const uint32_t deadline = HAL_GetTick() + 600000U;
+   while (QUADSPI->SR & QUADSPI_SR_BUSY) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+   QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
+                  QUADSPI_FCR_CTEF;
+   QUADSPI->DLR = len - 1U;
+   QUADSPI->ABR = 0;
+
+   uint32_t ccr = 0;
+   ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
+   ccr |= 1U << CCR_IMODE_Pos;            /* opcode 1-lane */
+   ccr |= 1U << CCR_ADMODE_Pos;           /* address 1-lane */
+   ccr |= (3U - 1U) << CCR_ADSIZE_Pos;    /* 3-byte address */
+   ccr |= lines_to_mode(data_lines) << CCR_DMODE_Pos;
+   ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
+   ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
+   QUADSPI->CCR = ccr;
+   QUADSPI->AR  = 0U;
+
+   volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
+   volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
+   uint32_t crc                  = 0xFFFFFFFFUL;
+   uint32_t first_err            = 0xFFFFFFFFUL;
+   const uint32_t t0             = HAL_GetTick();
+
+   /* Drain in 32-bit words while at least 4 bytes are in the FIFO.
+    * FTHRES=3 (set in qspi_init) -> FTF asserts at >= 4 bytes available,
+    * so a single FTF poll covers a full word read.  Tail (< 4 bytes)
+    * falls back to byte-serial. */
+   uint32_t i = 0;
+   while (i + 4U <= len) {
+      while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
+         if (QUADSPI->SR & QUADSPI_SR_TEF) {
+            qspi_abort();
+            return HAL_ERROR;
+         }
+         if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+            qspi_abort();
+            return HAL_TIMEOUT;
+         }
+      }
+      const uint32_t w = *dr32;
+      for (int k = 0; k < 4; k++) {
+         const uint8_t b = (uint8_t)(w >> (k * 8));
+         crc ^= (uint32_t)b;
+         for (int j = 0; j < 8; j++)
+            crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
+         const uint8_t exp = (uint8_t)((i + (uint32_t)k) & 0xFFU);
+         if (b != exp && first_err == 0xFFFFFFFFUL)
+            first_err = i + (uint32_t)k;
+      }
+      i += 4U;
+   }
+   /* Drain the trailing 1..3 bytes byte-serial. */
+   while (i < len) {
+      while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
+         if (QUADSPI->SR & QUADSPI_SR_TCF) break;  /* last bytes */
+         if (QUADSPI->SR & QUADSPI_SR_TEF) {
+            qspi_abort();
+            return HAL_ERROR;
+         }
+         if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+            qspi_abort();
+            return HAL_TIMEOUT;
+         }
+      }
+      const uint8_t b = *dr8;
+      crc ^= (uint32_t)b;
+      for (int j = 0; j < 8; j++)
+         crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
+      const uint8_t exp = (uint8_t)(i & 0xFFU);
+      if (b != exp && first_err == 0xFFFFFFFFUL)
+         first_err = i;
+      i++;
+   }
+
+   while (!(QUADSPI->SR & QUADSPI_SR_TCF)) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+   QUADSPI->FCR = QUADSPI_FCR_CTCF;
+   while (QUADSPI->SR & QUADSPI_SR_BUSY) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+
+   *crc_out        = crc ^ 0xFFFFFFFFUL;
+   *first_err_out  = first_err;
+   *elapsed_ms_out = HAL_GetTick() - t0;
+   return HAL_OK;
+}

@@ -118,15 +118,6 @@ static void hexdump(uint32_t base, const uint8_t *data, uint32_t n)
    }
 }
 
-/* -------- CRC-32 (IEEE 802.3) ------------------------------------- */
-static uint32_t crc32_byte(uint32_t c, uint8_t b)
-{
-   c ^= b;
-   for (int k = 0; k < 8; k++)
-      c = (c >> 1) ^ (0xEDB88320U & (uint32_t)-(int32_t)(c & 1U));
-   return c;
-}
-
 /* -------- command handlers ---------------------------------------- */
 
 static void cmd_help(void)
@@ -393,41 +384,33 @@ static void cmd_bench(int argc, char **argv)
 {
    uint32_t len  = arg_u32(argc > 0 ? argv[0] : NULL, 256U);
    uint32_t quad = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
-   if (len > READ_CAP) len = READ_CAP;
+   if (len == 0U) len = 256U;
    busy_flag = true;
-   qspi_cmd_t c = {
-      .instruction  = 0x0BU,
-      .address      = 0U, .addr_bytes = 3U,
-      .dummy_cycles = 8U,
-      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
-      .data_lines   = QSPI_LINES_1, .data_len   = len,
-   };
-   if (quad) {
-      c.instruction  = 0x6BU;
-      c.data_lines   = QSPI_LINES_4;
-   }
-   uint32_t t0 = HAL_GetTick();
-   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 10000U) != HAL_OK) {
-      my_printf("ERR bench\r\n");
+
+   const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
+   const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
+   const uint8_t dummy   = 8U;
+
+   uint32_t crc = 0, firsterr = 0, dt = 0;
+   HAL_StatusTypeDef s = qspi_bench_read(opcode, dl, dummy, len,
+                                         &crc, &firsterr, &dt);
+   if (s != HAL_OK) {
+      my_printf("ERR bench (%d)\r\n", (int)s);
       busy_flag = false;
       return;
    }
-   uint32_t dt = HAL_GetTick() - t0;
    if (dt == 0U) dt = 1U;
-   uint32_t kbps = (len * 1000U) / (dt * 1024U);
-   uint32_t crc  = 0xFFFFFFFFU;
-   uint32_t firsterr = 0xFFFFFFFFU;
-   const uint8_t pat0 = 0xC0U;
-   for (uint32_t i = 0; i < len; i++) {
-      crc = crc32_byte(crc, io_buf[i]);
-      uint8_t exp = pat0 + (uint8_t)(i & 0x0FU);
-      if (firsterr == 0xFFFFFFFFU && io_buf[i] != exp)
-         firsterr = i;
-   }
-   crc = ~crc;
-   my_printf("bench %lu B %s in %lu ms, %lu KB/s, crc32=%08lx, firsterr=%ld\r\n",
+   uint32_t kbps = (len + dt * 512U) / (dt * 1024U);
+   /* Avoid 32-bit overflow in (len * 1000) for len >= 4 MB. */
+   if (len <= 4000000U)
+      kbps = (len * 1000U) / (dt * 1024U);
+   else
+      kbps = ((len / 1024U) * 1000U) / dt;
+   my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu KB/s, "
+             "crc32=%08lx, firsterr=%ld\r\n",
              (unsigned long)len,
              quad ? "quad" : "1lane",
+             (unsigned long)qspi_get_prescaler(),
              (unsigned long)dt, (unsigned long)kbps,
              (unsigned long)crc,
              firsterr == 0xFFFFFFFFU ? -1L : (long)firsterr);
@@ -629,12 +612,18 @@ static void cmd_prescaler(int argc, char **argv)
       my_printf("ERR presc range\r\n");
       return;
    }
-   if (qspi_init(p, qspi_get_fsize(), qspi_get_csht(), 0U, false) != HAL_OK) {
+   /* Enable 1/2-cycle sample shift at high SCLK so MISO sampling is
+    * stable above ~50 MHz.  ker_ck on this project is ~266 MHz, so
+    * presc <= 3 (>=66 MHz) gets the shift. */
+   const uint32_t sshift = (p <= 3U) ? 1U : 0U;
+   if (qspi_init(p, qspi_get_fsize(), qspi_get_csht(), sshift, false)
+       != HAL_OK) {
       my_printf("ERR reinit\r\n");
       return;
    }
    busy_flag = false;
-   my_printf("presc=%lu\r\n", (unsigned long)p);
+   my_printf("presc=%lu sshift=%lu\r\n",
+             (unsigned long)p, (unsigned long)sshift);
 }
 
 /* -------- raw GPIO bring-up helpers ------------------------------- */
