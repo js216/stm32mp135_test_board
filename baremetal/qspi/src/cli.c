@@ -135,7 +135,9 @@ static void cmd_help(void)
       " 2 <a> <n>      dual-output read 0x3B\r\n"
       " 3 <a> <n>      dual-I/O read 0xBB (alt=0xA0, 4 dummy)\r\n"
       " M <a> <n>      memory-mapped read\r\n"
-      " b <n> [q=0/1]  bench streaming read\r\n"
+      " b <n> [q=0/1] [raw=0/1]  bench streaming read\r\n"
+      " j <n> [q=0/1] raw data-only read (no opcode/addr)\r\n"
+      " J <b0> ...    raw data-only write (no opcode/addr)\r\n"
       " e [opc=0x06]   opcode-only (WREN)\r\n"
       " W <v> [op=0x01]  write status reg (op + 1B data)\r\n"
       " w <a> <n> [op=0x02]   1-lane page program\r\n"
@@ -384,12 +386,13 @@ static void cmd_bench(int argc, char **argv)
 {
    uint32_t len  = arg_u32(argc > 0 ? argv[0] : NULL, 256U);
    uint32_t quad = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
+   uint32_t raw  = arg_u32(argc > 2 ? argv[2] : NULL, 0U);
    if (len == 0U) len = 256U;
    busy_flag = true;
 
    const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
-   const uint8_t dummy   = 8U;
+   const uint8_t dummy   = raw ? 0U : 8U;
 
    uint32_t crc = 0, firsterr = 0, dt = 0;
    uint8_t  got16[16] = {0};
@@ -399,6 +402,7 @@ static void cmd_bench(int argc, char **argv)
              (unsigned long)quad, (unsigned)opcode,
              (unsigned long)qspi_get_prescaler());
    HAL_StatusTypeDef s = qspi_bench_read(opcode, dl, dummy, len,
+                                         raw != 0U,
                                          &crc, &firsterr, got16, &dt);
    my_printf("BENCHDBG cmd_post t=%lu rc=%d dt=%lu firsterr=%ld\r\n",
              (unsigned long)HAL_GetTick(), (int)s, (unsigned long)dt,
@@ -436,6 +440,58 @@ static void cmd_bench(int argc, char **argv)
              got16[8], got16[9], got16[10], got16[11],
              got16[12], got16[13], got16[14], got16[15]);
    busy_flag = false;
+}
+
+/* Raw data-only read: IMODE=ADMODE=ABMODE=0, just DMODE on the wire.
+ * Matches a generic SPI slave that shifts bits without flash framing. */
+static void cmd_raw_read(int argc, char **argv)
+{
+   uint32_t len  = arg_u32(argc > 0 ? argv[0] : NULL, 16U);
+   uint32_t quad = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .inst_lines = QSPI_LINES_NONE,
+      .addr_lines = QSPI_LINES_NONE,
+      .alt_lines  = QSPI_LINES_NONE,
+      .data_lines = quad ? QSPI_LINES_4 : QSPI_LINES_1,
+      .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR raw_read\r\n");
+      return;
+   }
+   my_printf("raw read %lu (%s)\r\n",
+             (unsigned long)len, quad ? "quad" : "1lane");
+   hexdump(0U, io_buf, len);
+}
+
+/* Raw data-only write: clocks out the supplied bytes (or 0xAA pattern
+ * if no bytes given but a length is) with no opcode/address phase. */
+static void cmd_raw_write(int argc, char **argv)
+{
+   uint32_t quad = 0U;
+   uint32_t len  = (uint32_t)argc;
+   if (len == 0U) {
+      my_printf("usage: J <b0> [b1...] (last arg may be quad=N)\r\n");
+      return;
+   }
+   /* Treat trailing arg "q=1" via large value > 0xFF heuristic: keep it
+    * simple, callers pass bytes only.  Quad mode is selected through
+    * the bench cmd `b` instead. */
+   for (int i = 0; i < argc && i < (int)READ_CAP; i++)
+      io_buf[i] = (uint8_t)arg_u32(argv[i], 0U);
+   const qspi_cmd_t c = {
+      .inst_lines = QSPI_LINES_NONE,
+      .addr_lines = QSPI_LINES_NONE,
+      .alt_lines  = QSPI_LINES_NONE,
+      .data_lines = quad ? QSPI_LINES_4 : QSPI_LINES_1,
+      .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR raw_write\r\n");
+      return;
+   }
+   my_printf("raw wrote %lu bytes\r\n", (unsigned long)len);
 }
 
 static void cmd_op_only(int argc, char **argv)
@@ -759,6 +815,8 @@ static void dispatch(char *line)
       case '3': cmd_dual_io_read(argc, argv);     break;
       case 'M': cmd_mm(argc, argv);               break;
       case 'b': cmd_bench(argc, argv);            break;
+      case 'j': cmd_raw_read(argc, argv);         break;
+      case 'J': cmd_raw_write(argc, argv);        break;
       case 'e': cmd_op_only(argc, argv);          break;
       case 'W': cmd_wrsr(argc, argv);             break;
       case 'w': cmd_pp(argc, argv);               break;

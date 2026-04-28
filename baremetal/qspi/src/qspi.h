@@ -77,8 +77,12 @@ int qspi_busy(void);
  * error offset (0xFFFFFFFF if all match), the first 16 bytes actually
  * received (got16, useful even when no error -- always populated), and
  * elapsed milliseconds. */
+/* `raw=true` -> IMODE=0 + ADMODE=0: nothing on the wire except the
+ * data-phase bytes themselves (matches a generic SPI slave that just
+ * shifts bits on SCK).  In that case `opcode` is ignored. */
 HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t dummy_cycles, uint32_t len,
+                                  bool raw,
                                   uint32_t *crc_out, uint32_t *first_err_out,
                                   uint8_t  *got16_out,
                                   uint32_t *elapsed_ms_out);

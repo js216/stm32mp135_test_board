@@ -293,6 +293,7 @@ HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
 
 HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t dummy_cycles, uint32_t len,
+                                  bool raw,
                                   uint32_t *crc_out, uint32_t *first_err_out,
                                   uint8_t  *got16_out,
                                   uint32_t *elapsed_ms_out)
@@ -319,15 +320,19 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    QUADSPI->ABR = 0;
 
    uint32_t ccr = 0;
-   ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
-   ccr |= 1U << CCR_IMODE_Pos;            /* opcode 1-lane */
-   ccr |= 1U << CCR_ADMODE_Pos;           /* address 1-lane */
-   ccr |= (3U - 1U) << CCR_ADSIZE_Pos;    /* 3-byte address */
+   if (!raw) {
+      ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
+      ccr |= 1U << CCR_IMODE_Pos;         /* opcode 1-lane */
+      ccr |= 1U << CCR_ADMODE_Pos;        /* address 1-lane */
+      ccr |= (3U - 1U) << CCR_ADSIZE_Pos; /* 3-byte address */
+   }
+   /* raw=true -> IMODE=0 + ADMODE=0: data phase only on the wire. */
    ccr |= lines_to_mode(data_lines) << CCR_DMODE_Pos;
    ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
    ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
    QUADSPI->CCR = ccr;
-   QUADSPI->AR  = 0U;
+   if (!raw)
+      QUADSPI->AR = 0U;
 
    my_printf("BENCHDBG poll_kicked t=%lu sr=%08lx\r\n",
              (unsigned long)HAL_GetTick(),
