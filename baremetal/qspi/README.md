@@ -524,7 +524,7 @@ mp135:uart_close
 ```
 
 - Check 16 MB MDMA read completes
-- Check 16 MB MDMA throughput at least 200 Mbps (datasheet-max SCLK)
+- Check 16 MB MDMA throughput at least 200 Mbps (~30% of the 664 Mbps datasheet-max bit rate: 4 lanes x 166 MHz SDR per DS13483 Rev 5 p170 Tbl 76)
 - Check 16 MB MDMA data integrity into DDR
 - Check `test_serv` had no errors
 

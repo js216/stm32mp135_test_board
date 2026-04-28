@@ -1825,7 +1825,7 @@ DISPATCH = {
         check_1mb_scan_max_quad_rate,
     # Block 12 -- MDMA 16 MB streaming read into DDR
     "Check 16 MB MDMA read completes": check_mdma_16mb_completes,
-    "Check 16 MB MDMA throughput at least 200 Mbps (datasheet-max SCLK)":
+    "Check 16 MB MDMA throughput at least 200 Mbps (~30% of the 664 Mbps datasheet-max bit rate: 4 lanes x 166 MHz SDR per DS13483 Rev 5 p170 Tbl 76)":
         check_mdma_16mb_throughput_200mbps,
     "Check 16 MB MDMA data integrity into DDR": check_mdma_16mb_integrity,
     # Block 3
