@@ -2,23 +2,24 @@
 
 /**
  * @file qspi.c
- * @brief QUADSPI bare-register driver for FPGA bring-up
+ * @brief QUADSPI bare-register driver for FPGA bring-up.  Indirect read /
+ *        write, memory-mapped read, and auto-poll status modes.  Polled
+ *        only; HAL is used for GPIO pin-mux and clock enables.
+ *        DMA is intentionally not implemented.
  * @author Jakob Kastelic
  * @copyright 2026 Stanford Research Systems, Inc.
- *
- * The QUADSPI peripheral itself is driven through raw register writes.
- * HAL is only used for GPIO pin-mux and clock enables -- both of which
- * the project already pulls in for UART.
  */
 
+#include "qspi.h"
+#include "board.h"
+#include "stm32mp135fxx_ca7.h"
+#include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_def.h"
+#include "stm32mp13xx_hal_gpio.h"
+#include "stm32mp13xx_hal_rcc.h"
 #include <stddef.h>
 #include <stdint.h>
 
-#include "board.h"
-#include "qspi.h"
-#include "stm32mp13xx_hal.h"
-
-/* QUADSPI_CCR field positions (RM0475 23.5.6). */
 #define CCR_INSTRUCTION_Pos 0U
 #define CCR_IMODE_Pos       8U
 #define CCR_ADMODE_Pos      10U
@@ -30,6 +31,13 @@
 #define CCR_FMODE_Pos       26U
 
 static int initialised;
+static uint32_t cur_prescaler;
+static uint32_t cur_fsize;
+static uint32_t cur_csht;
+
+uint32_t qspi_get_prescaler(void) { return cur_prescaler; }
+uint32_t qspi_get_fsize(void)     { return cur_fsize; }
+uint32_t qspi_get_csht(void)      { return cur_csht; }
 
 static uint32_t lines_to_mode(qspi_lines_t l)
 {
@@ -72,7 +80,8 @@ void qspi_abort(void)
 }
 
 HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
-                            uint32_t cs_high_cyc, uint32_t sample_shift)
+                            uint32_t cs_high_cyc, uint32_t sample_shift,
+                            bool dual_flash)
 {
    if (prescaler > 255U || fsize_log2 > 31U || cs_high_cyc > 7U ||
        sample_shift > 1U)
@@ -99,6 +108,8 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
    uint32_t cr = (prescaler & 0xFFU) << QUADSPI_CR_PRESCALER_Pos;
    if (sample_shift)
       cr |= QUADSPI_CR_SSHIFT;
+   if (dual_flash)
+      cr |= QUADSPI_CR_DFM;
    cr |= (3U << QUADSPI_CR_FTHRES_Pos);
    QUADSPI->CR = cr;
 
@@ -109,7 +120,10 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
                   QUADSPI_FCR_CTEF;
    QUADSPI->CR |= QUADSPI_CR_EN;
 
-   initialised = 1;
+   cur_prescaler = prescaler;
+   cur_fsize     = fsize_log2;
+   cur_csht      = cs_high_cyc;
+   initialised   = 1;
    return HAL_OK;
 }
 
@@ -138,6 +152,8 @@ static uint32_t build_ccr(const qspi_cmd_t *cmd, qspi_fmode_t fmode)
       ccr |= (uint32_t)(cmd->alt_bytes_len - 1U) << CCR_ABSIZE_Pos;
    ccr |= (uint32_t)(cmd->dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
    ccr |= ((uint32_t)fmode & 0x3U) << CCR_FMODE_Pos;
+   if (cmd->ddr)
+      ccr |= QUADSPI_CCR_DDRM;
    return ccr;
 }
 
@@ -163,7 +179,7 @@ HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
 {
    if (!initialised || cmd == NULL)
       return HAL_ERROR;
-   if (cmd->data_len && buf == NULL)
+   if (cmd->data_len && buf == NULL && fmode != QSPI_FMODE_AUTOPOLL)
       return HAL_ERROR;
    if (cmd->addr_bytes > 4U || cmd->alt_bytes_len > 4U ||
        cmd->dummy_cycles > 31U)
@@ -205,4 +221,71 @@ HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
    QUADSPI->FCR = QUADSPI_FCR_CTCF;
 
    return wait_not_busy(deadline);
+}
+
+HAL_StatusTypeDef qspi_mm_enable(const qspi_cmd_t *cmd)
+{
+   if (!initialised || cmd == NULL)
+      return HAL_ERROR;
+
+   const uint32_t deadline = HAL_GetTick() + 100U;
+   HAL_StatusTypeDef s     = wait_not_busy(deadline);
+   if (s != HAL_OK)
+      return s;
+
+   QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
+                  QUADSPI_FCR_CTEF;
+   QUADSPI->ABR = cmd->alt_bytes;
+   QUADSPI->CCR = build_ccr(cmd, QSPI_FMODE_MEMMAPPED);
+   return HAL_OK;
+}
+
+void qspi_mm_disable(void)
+{
+   qspi_abort();
+}
+
+HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
+                                uint32_t match, uint32_t interval_cycles,
+                                uint32_t timeout_ms)
+{
+   if (!initialised || cmd == NULL)
+      return HAL_ERROR;
+
+   const uint32_t deadline = HAL_GetTick() + timeout_ms;
+   HAL_StatusTypeDef s     = wait_not_busy(deadline);
+   if (s != HAL_OK)
+      return s;
+
+   /* AND-match (PMM=0), automatic stop on match (APMS=1). */
+   uint32_t cr = QUADSPI->CR;
+   cr &= ~QUADSPI_CR_PMM;
+   cr |= QUADSPI_CR_APMS;
+   QUADSPI->CR = cr;
+
+   QUADSPI->FCR   = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
+                  QUADSPI_FCR_CTEF;
+   QUADSPI->PSMKR = mask;
+   QUADSPI->PSMAR = match;
+   QUADSPI->PIR   = interval_cycles & 0xFFFFU;
+   QUADSPI->DLR   = cmd->data_len ? (cmd->data_len - 1U) : 0U;
+   QUADSPI->ABR   = cmd->alt_bytes;
+   QUADSPI->CCR   = build_ccr(cmd, QSPI_FMODE_AUTOPOLL);
+   if (cmd->addr_lines != QSPI_LINES_NONE)
+      QUADSPI->AR = cmd->address;
+
+   while (!(QUADSPI->SR & QUADSPI_SR_SMF)) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+      if (QUADSPI->SR & QUADSPI_SR_TEF) {
+         qspi_abort();
+         return HAL_ERROR;
+      }
+   }
+   QUADSPI->FCR = QUADSPI_FCR_CSMF;
+   /* APMS=1 auto-clears the transfer; just be safe. */
+   qspi_abort();
+   return HAL_OK;
 }

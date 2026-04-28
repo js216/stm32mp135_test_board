@@ -1,0 +1,822 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+/**
+ * @file cli.c
+ * @brief Single-char command shell exercising the QSPI driver from a
+ *        UART4 console.  Polled RX (no IRQ).  Every command is a single
+ *        printable letter followed by space-separated decimal/hex args.
+ * @author Jakob Kastelic
+ * @copyright 2026 Stanford Research Systems, Inc.
+ */
+
+#include "cli.h"
+#include "board.h"
+#include "printf.h"
+#include "qspi.h"
+#include "stm32mp135fxx_ca7.h"
+#include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_gpio.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define LINEMAX  80
+#define MAX_ARGS 8
+#define READ_CAP 1024U
+#define WRITE_CAP 256U
+#define RXBUF    256
+
+static char linebuf[LINEMAX + 1];
+static int  linelen;
+static bool busy_flag;
+static bool four_byte_mode;
+static uint32_t pend_confirm_C_until;
+static uint8_t  io_buf[READ_CAP];
+
+/* Software RX ring drained both from cli_poll and from inside the TX
+ * char-write hook -- TX'ing a long printf burst takes longer than the
+ * 1-byte hardware RX FIFO can hold, so we must drain on every char. */
+static volatile uint8_t  rx_ring[RXBUF];
+static volatile uint16_t rx_head;
+static volatile uint16_t rx_tail;
+
+bool cli_busy(void) { return busy_flag; }
+
+static void rx_drain_hw(void)
+{
+   while (UART4->ISR & USART_ISR_RXNE_RXFNE) {
+      uint8_t c = (uint8_t)(UART4->RDR & 0xFFU);
+      uint16_t nh = (uint16_t)((rx_head + 1U) % RXBUF);
+      if (nh != rx_tail) {
+         rx_ring[rx_head] = c;
+         rx_head          = nh;
+      }
+      /* else drop on overflow */
+   }
+}
+
+static int uart_rx_byte(int *out)
+{
+   rx_drain_hw();
+   if (rx_head == rx_tail)
+      return 0;
+   *out    = rx_ring[rx_tail];
+   rx_tail = (uint16_t)((rx_tail + 1U) % RXBUF);
+   return 1;
+}
+
+static void uart_tx_byte(char c)
+{
+   while (!(UART4->ISR & USART_ISR_TXE))
+      rx_drain_hw();
+   UART4->TDR = (uint8_t)c;
+}
+
+static void prompt(void)
+{
+   my_printf("> ");
+}
+
+static int parse_args(char *p, char **argv, int max)
+{
+   int n = 0;
+   while (*p && n < max) {
+      while (*p == ' ' || *p == '\t')
+         p++;
+      if (!*p)
+         break;
+      argv[n++] = p;
+      while (*p && *p != ' ' && *p != '\t')
+         p++;
+      if (*p) {
+         *p++ = '\0';
+      }
+   }
+   return n;
+}
+
+static uint32_t arg_u32(const char *s, uint32_t dflt)
+{
+   if (!s || !*s)
+      return dflt;
+   char *e = NULL;
+   uint32_t v = (uint32_t)strtoul(s, &e, 0);
+   if (e == s)
+      return dflt;
+   return v;
+}
+
+static void hexdump(uint32_t base, const uint8_t *data, uint32_t n)
+{
+   for (uint32_t i = 0; i < n; i += 16U) {
+      my_printf("%08lx:", (unsigned long)(base + i));
+      uint32_t row = (n - i) < 16U ? (n - i) : 16U;
+      for (uint32_t j = 0; j < row; j++)
+         my_printf(" %02x", data[i + j]);
+      my_printf("\r\n");
+   }
+}
+
+/* -------- CRC-32 (IEEE 802.3) ------------------------------------- */
+static uint32_t crc32_byte(uint32_t c, uint8_t b)
+{
+   c ^= b;
+   for (int k = 0; k < 8; k++)
+      c = (c >> 1) ^ (0xEDB88320U & (uint32_t)-(int32_t)(c & 1U));
+   return c;
+}
+
+/* -------- command handlers ---------------------------------------- */
+
+static void cmd_help(void)
+{
+   my_printf(
+      "QSPI shell:\r\n"
+      " i              JEDEC RDID 0x9F\r\n"
+      " f <a> <n>      SFDP read 0x5A\r\n"
+      " s [opc=0x05]   opcode-then-1-byte (RDSR)\r\n"
+      " ?              status: busy / presc / fsize / csht\r\n"
+      " r <a> <n> [op=0x03]   1-lane read\r\n"
+      " F <a> <n>      fast read 0x0B\r\n"
+      " q <a> <n>      quad-output read 0x6B\r\n"
+      " X <a> <n>      quad-I/O read 0xEB\r\n"
+      " 2 <a> <n>      dual-output read 0x3B\r\n"
+      " 3 <a> <n>      dual-I/O read 0xBB (alt=0xA0, 4 dummy)\r\n"
+      " M <a> <n>      memory-mapped read\r\n"
+      " b <n> [q=0/1]  bench streaming read\r\n"
+      " e [opc=0x06]   opcode-only (WREN)\r\n"
+      " W <v> [op=0x01]  write status reg (op + 1B data)\r\n"
+      " w <a> <n> [op=0x02]   1-lane page program\r\n"
+      " Q <a> <n>      quad-input PP 0x32\r\n"
+      " S <a>          sector erase 4 KB (0x20)\r\n"
+      " B <a>          block  erase 64 KB (0xD8)\r\n"
+      " C              chip erase 0xC7 (confirm)\r\n"
+      " P [op] [m] [v] auto-poll status (default WIP=0)\r\n"
+      " 4 [0/1]        exit/enter 4-byte addr (0xE9/0xB7)\r\n"
+      " R              soft reset 0x66 0x99\r\n"
+      " D              deep power-down 0xB9\r\n"
+      " d              release DPD 0xAB\r\n"
+      " p <n>          set prescaler\r\n"
+      " g <mask6>      raw GPIO drive (bits: CLK NCS IO0 IO1 IO2 IO3)\r\n"
+      " t [ms=1]       toggle all 6 pins forever (reset to stop)\r\n"
+      " x              abort + drain FIFO\r\n"
+      " h              this help\r\n");
+}
+
+static void cmd_jedec(void)
+{
+   const qspi_cmd_t c = {
+      .instruction = 0x9FU, .inst_lines = QSPI_LINES_1,
+      .data_lines  = QSPI_LINES_1, .data_len = 3U,
+   };
+   uint8_t id[3] = {0};
+   if (qspi_xfer(&c, QSPI_FMODE_READ, id, 100U) != HAL_OK) {
+      my_printf("ERR jedec\r\n");
+      return;
+   }
+   my_printf("JEDEC ID: %02x %02x %02x\r\n", id[0], id[1], id[2]);
+}
+
+static void cmd_sfdp(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x5AU,
+      .address      = addr,
+      .addr_bytes   = 3U,
+      .dummy_cycles = 8U,
+      .inst_lines   = QSPI_LINES_1,
+      .addr_lines   = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_1,
+      .data_len     = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 1000U) != HAL_OK) {
+      my_printf("ERR sfdp\r\n");
+      return;
+   }
+   my_printf("SFDP @ 0x%08lx (%lu bytes)\r\n",
+             (unsigned long)addr, (unsigned long)len);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_status(int argc, char **argv)
+{
+   uint32_t opc = arg_u32(argc > 0 ? argv[0] : NULL, 0x05U);
+   const qspi_cmd_t c = {
+      .instruction = (uint8_t)opc, .inst_lines = QSPI_LINES_1,
+      .data_lines  = QSPI_LINES_1, .data_len = 1U,
+   };
+   uint8_t v = 0xFFU;
+   if (qspi_xfer(&c, QSPI_FMODE_READ, &v, 100U) != HAL_OK) {
+      my_printf("ERR status\r\n");
+      return;
+   }
+   my_printf("op=%02x -> %02x\r\n", (unsigned)opc, v);
+}
+
+static void cmd_query(void)
+{
+   my_printf("busy=%d presc=%lu fsize=%lu csht=%lu\r\n",
+             qspi_busy(),
+             (unsigned long)qspi_get_prescaler(),
+             (unsigned long)qspi_get_fsize(),
+             (unsigned long)qspi_get_csht());
+}
+
+static void cmd_read(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   uint32_t opc  = arg_u32(argc > 2 ? argv[2] : NULL, 0x03U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction = (uint8_t)opc,
+      .address     = addr, .addr_bytes = 3U,
+      .inst_lines  = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines  = QSPI_LINES_1, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR read\r\n");
+      return;
+   }
+   my_printf("op=%02x read %lu @ 0x%08lx\r\n",
+             (unsigned)opc, (unsigned long)len, (unsigned long)addr);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_fast_read(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x0BU,
+      .address      = addr, .addr_bytes = 3U,
+      .dummy_cycles = 8U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_1, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR fast\r\n");
+      return;
+   }
+   my_printf("op=0b read %lu @ 0x%08lx\r\n",
+             (unsigned long)len, (unsigned long)addr);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_quad_read(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x6BU,
+      .address      = addr, .addr_bytes = 3U,
+      .dummy_cycles = 8U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_4, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR quadr\r\n");
+      return;
+   }
+   my_printf("op=6b read %lu @ 0x%08lx\r\n",
+             (unsigned long)len, (unsigned long)addr);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_quad_io_read(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction   = 0xEBU,
+      .address       = addr, .addr_bytes = 3U,
+      .alt_bytes     = 0xA0U, .alt_bytes_len = 1U,
+      .dummy_cycles  = 4U,
+      .inst_lines    = QSPI_LINES_1,
+      .addr_lines    = QSPI_LINES_4,
+      .alt_lines     = QSPI_LINES_4,
+      .data_lines    = QSPI_LINES_4,
+      .data_len      = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR quadio\r\n");
+      return;
+   }
+   my_printf("op=eb read %lu @ 0x%08lx\r\n",
+             (unsigned long)len, (unsigned long)addr);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_dual_read(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x3BU,
+      .address      = addr, .addr_bytes = 3U,
+      .dummy_cycles = 8U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_2, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR dualr\r\n");
+      return;
+   }
+   my_printf("op=3b read %lu @ 0x%08lx\r\n",
+             (unsigned long)len, (unsigned long)addr);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_dual_io_read(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction   = 0xBBU,
+      .address       = addr, .addr_bytes = 3U,
+      .alt_bytes     = 0xA0U, .alt_bytes_len = 1U,
+      .dummy_cycles  = 4U,
+      .inst_lines    = QSPI_LINES_1,
+      .addr_lines    = QSPI_LINES_2,
+      .alt_lines     = QSPI_LINES_2,
+      .data_lines    = QSPI_LINES_2,
+      .data_len      = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR dualio\r\n");
+      return;
+   }
+   my_printf("op=bb read %lu @ 0x%08lx\r\n",
+             (unsigned long)len, (unsigned long)addr);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_mm(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction   = 0xEBU,
+      .addr_bytes    = 3U,
+      .alt_bytes     = 0xA0U, .alt_bytes_len = 1U,
+      .dummy_cycles  = 4U,
+      .inst_lines    = QSPI_LINES_1,
+      .addr_lines    = QSPI_LINES_4,
+      .alt_lines     = QSPI_LINES_4,
+      .data_lines    = QSPI_LINES_4,
+   };
+   if (qspi_mm_enable(&c) != HAL_OK) {
+      my_printf("ERR mm\r\n");
+      return;
+   }
+   const volatile uint8_t *src =
+       (const volatile uint8_t *)(QSPI_MM_BASE + addr);
+   for (uint32_t i = 0; i < len; i++)
+      io_buf[i] = src[i];
+   qspi_mm_disable();
+   my_printf("MM read %lu @ 0x%08lx\r\n",
+             (unsigned long)len, (unsigned long)addr);
+   hexdump(addr, io_buf, len);
+}
+
+static void cmd_bench(int argc, char **argv)
+{
+   uint32_t len  = arg_u32(argc > 0 ? argv[0] : NULL, 256U);
+   uint32_t quad = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
+   if (len > READ_CAP) len = READ_CAP;
+   busy_flag = true;
+   qspi_cmd_t c = {
+      .instruction  = 0x0BU,
+      .address      = 0U, .addr_bytes = 3U,
+      .dummy_cycles = 8U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_1, .data_len   = len,
+   };
+   if (quad) {
+      c.instruction  = 0x6BU;
+      c.data_lines   = QSPI_LINES_4;
+   }
+   uint32_t t0 = HAL_GetTick();
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 10000U) != HAL_OK) {
+      my_printf("ERR bench\r\n");
+      busy_flag = false;
+      return;
+   }
+   uint32_t dt = HAL_GetTick() - t0;
+   if (dt == 0U) dt = 1U;
+   uint32_t kbps = (len * 1000U) / (dt * 1024U);
+   uint32_t crc  = 0xFFFFFFFFU;
+   uint32_t firsterr = 0xFFFFFFFFU;
+   const uint8_t pat0 = 0xC0U;
+   for (uint32_t i = 0; i < len; i++) {
+      crc = crc32_byte(crc, io_buf[i]);
+      uint8_t exp = pat0 + (uint8_t)(i & 0x0FU);
+      if (firsterr == 0xFFFFFFFFU && io_buf[i] != exp)
+         firsterr = i;
+   }
+   crc = ~crc;
+   my_printf("bench %lu B %s in %lu ms, %lu KB/s, crc32=%08lx, firsterr=%ld\r\n",
+             (unsigned long)len,
+             quad ? "quad" : "1lane",
+             (unsigned long)dt, (unsigned long)kbps,
+             (unsigned long)crc,
+             firsterr == 0xFFFFFFFFU ? -1L : (long)firsterr);
+   busy_flag = false;
+}
+
+static void cmd_op_only(int argc, char **argv)
+{
+   uint32_t opc = arg_u32(argc > 0 ? argv[0] : NULL, 0x06U);
+   const qspi_cmd_t c = {
+      .instruction = (uint8_t)opc, .inst_lines = QSPI_LINES_1,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, NULL, 100U) != HAL_OK) {
+      my_printf("ERR op\r\n");
+      return;
+   }
+   my_printf("op=%02x sent\r\n", (unsigned)opc);
+}
+
+static void cmd_wrsr(int argc, char **argv)
+{
+   uint32_t val = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t opc = arg_u32(argc > 1 ? argv[1] : NULL, 0x01U);
+   uint8_t  v   = (uint8_t)val;
+   const qspi_cmd_t c = {
+      .instruction = (uint8_t)opc,
+      .inst_lines  = QSPI_LINES_1,
+      .data_lines  = QSPI_LINES_1,
+      .data_len    = 1U,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, &v, 100U) != HAL_OK) {
+      my_printf("ERR wrsr\r\n");
+      return;
+   }
+   my_printf("op=%02x wrote SR=%02x\r\n", (unsigned)opc, (unsigned)v);
+}
+
+static void cmd_pp(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   uint32_t opc  = arg_u32(argc > 2 ? argv[2] : NULL, 0x02U);
+   if (len > WRITE_CAP) len = WRITE_CAP;
+   for (uint32_t i = 0; i < len; i++)
+      io_buf[i] = (uint8_t)(i & 0xFFU);
+   const qspi_cmd_t c = {
+      .instruction = (uint8_t)opc,
+      .address     = addr, .addr_bytes = 3U,
+      .inst_lines  = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines  = QSPI_LINES_1, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR pp\r\n");
+      return;
+   }
+   my_printf("op=%02x wrote %lu bytes @ 0x%08lx\r\n",
+             (unsigned)opc, (unsigned long)len, (unsigned long)addr);
+}
+
+static void cmd_qpp(int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   uint32_t len  = arg_u32(argc > 1 ? argv[1] : NULL, 16U);
+   if (len > WRITE_CAP) len = WRITE_CAP;
+   for (uint32_t i = 0; i < len; i++)
+      io_buf[i] = (uint8_t)(0xC0U + (i & 0x0FU));
+   const qspi_cmd_t c = {
+      .instruction = 0x32U,
+      .address     = addr, .addr_bytes = 3U,
+      .inst_lines  = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines  = QSPI_LINES_4, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR qpp\r\n");
+      return;
+   }
+   my_printf("op=32 wrote %lu bytes @ 0x%08lx\r\n",
+             (unsigned long)len, (unsigned long)addr);
+}
+
+static void cmd_erase(uint8_t opc, uint32_t kib_or_zero,
+                      int argc, char **argv)
+{
+   uint32_t addr = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   const qspi_cmd_t c = {
+      .instruction = opc,
+      .address     = addr, .addr_bytes = 3U,
+      .inst_lines  = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, NULL, 1000U) != HAL_OK) {
+      my_printf("ERR erase\r\n");
+      return;
+   }
+   if (kib_or_zero)
+      my_printf("op=%02x erased %lu KB @ 0x%08lx\r\n",
+                (unsigned)opc, (unsigned long)kib_or_zero,
+                (unsigned long)addr);
+   else
+      my_printf("op=%02x erased chip\r\n", (unsigned)opc);
+}
+
+static void cmd_chip_erase_pending(void)
+{
+   pend_confirm_C_until = HAL_GetTick() + 2000U;
+   my_printf("Type C again to confirm.\r\n");
+}
+
+static void cmd_chip_erase_do(void)
+{
+   const qspi_cmd_t c = {
+      .instruction = 0xC7U, .inst_lines = QSPI_LINES_1,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, NULL, 1000U) != HAL_OK) {
+      my_printf("ERR chip\r\n");
+      return;
+   }
+   my_printf("op=c7 erased chip\r\n");
+}
+
+static void cmd_autopoll(int argc, char **argv)
+{
+   uint32_t opc   = arg_u32(argc > 0 ? argv[0] : NULL, 0x05U);
+   uint32_t mask  = arg_u32(argc > 1 ? argv[1] : NULL, 0x01U);
+   uint32_t match = arg_u32(argc > 2 ? argv[2] : NULL, 0x00U);
+   const qspi_cmd_t c = {
+      .instruction = (uint8_t)opc,
+      .inst_lines  = QSPI_LINES_1,
+      .data_lines  = QSPI_LINES_1,
+      .data_len    = 1U,
+   };
+   busy_flag = true;
+   uint32_t t0 = HAL_GetTick();
+   HAL_StatusTypeDef s = qspi_autopoll(&c, mask, match, 16U, 5000U);
+   uint32_t dt = HAL_GetTick() - t0;
+   busy_flag = false;
+   if (s == HAL_OK)
+      my_printf("autopoll op=%02x mask=%02lx match=%02lx done in %lu ms\r\n",
+                (unsigned)opc, (unsigned long)mask, (unsigned long)match,
+                (unsigned long)dt);
+   else
+      my_printf("autopoll TIMEOUT after %lu ms\r\n", (unsigned long)dt);
+}
+
+static void cmd_4byte(int argc, char **argv)
+{
+   bool enter;
+   if (argc > 0)
+      enter = arg_u32(argv[0], 0U) != 0U;
+   else
+      enter = !four_byte_mode;
+   uint8_t opc = enter ? 0xB7U : 0xE9U;
+   const qspi_cmd_t c = {
+      .instruction = opc, .inst_lines = QSPI_LINES_1,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, NULL, 100U) != HAL_OK) {
+      my_printf("ERR 4byte\r\n");
+      return;
+   }
+   four_byte_mode = enter;
+   my_printf("4byte=%d (op=%02x)\r\n", enter ? 1 : 0, (unsigned)opc);
+}
+
+static void cmd_reset(void)
+{
+   const qspi_cmd_t a = { .instruction = 0x66U, .inst_lines = QSPI_LINES_1 };
+   const qspi_cmd_t b = { .instruction = 0x99U, .inst_lines = QSPI_LINES_1 };
+   if (qspi_xfer(&a, QSPI_FMODE_WRITE, NULL, 100U) != HAL_OK ||
+       qspi_xfer(&b, QSPI_FMODE_WRITE, NULL, 100U) != HAL_OK) {
+      my_printf("ERR reset\r\n");
+      return;
+   }
+   my_printf("reset (66 99) sent\r\n");
+}
+
+static void cmd_dpd(void)
+{
+   const qspi_cmd_t c = { .instruction = 0xB9U, .inst_lines = QSPI_LINES_1 };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, NULL, 100U) != HAL_OK) {
+      my_printf("ERR dpd\r\n");
+      return;
+   }
+   my_printf("op=b9 deep power-down\r\n");
+}
+
+static void cmd_release_dpd(void)
+{
+   const qspi_cmd_t c = { .instruction = 0xABU, .inst_lines = QSPI_LINES_1 };
+   if (qspi_xfer(&c, QSPI_FMODE_WRITE, NULL, 100U) != HAL_OK) {
+      my_printf("ERR rdpd\r\n");
+      return;
+   }
+   my_printf("op=ab release DPD\r\n");
+}
+
+static void cmd_prescaler(int argc, char **argv)
+{
+   uint32_t p = arg_u32(argc > 0 ? argv[0] : NULL, qspi_get_prescaler());
+   if (p > 255U) {
+      my_printf("ERR presc range\r\n");
+      return;
+   }
+   if (qspi_init(p, qspi_get_fsize(), qspi_get_csht(), 0U, false) != HAL_OK) {
+      my_printf("ERR reinit\r\n");
+      return;
+   }
+   busy_flag = false;
+   my_printf("presc=%lu\r\n", (unsigned long)p);
+}
+
+/* -------- raw GPIO bring-up helpers ------------------------------- */
+
+struct pin_def {
+   GPIO_TypeDef *port;
+   uint32_t      pin;
+   const char   *name;
+};
+
+static const struct pin_def pins[6] = {
+   { QSPI_CLK_PORT, QSPI_CLK_PIN, "CLK" },
+   { QSPI_NCS_PORT, QSPI_NCS_PIN, "NCS" },
+   { QSPI_IO0_PORT, QSPI_IO0_PIN, "IO0" },
+   { QSPI_IO1_PORT, QSPI_IO1_PIN, "IO1" },
+   { QSPI_IO2_PORT, QSPI_IO2_PIN, "IO2" },
+   { QSPI_IO3_PORT, QSPI_IO3_PIN, "IO3" },
+};
+
+static void force_gpio_outputs(void)
+{
+   QUADSPI->CR &= ~QUADSPI_CR_EN;
+   for (int i = 0; i < 6; i++) {
+      GPIO_InitTypeDef g = {
+         .Pin   = pins[i].pin,
+         .Mode  = GPIO_MODE_OUTPUT_PP,
+         .Pull  = GPIO_NOPULL,
+         .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+      };
+      HAL_GPIO_Init(pins[i].port, &g);
+   }
+}
+
+static void cmd_gpio(int argc, char **argv)
+{
+   uint32_t mask = arg_u32(argc > 0 ? argv[0] : NULL, 0U);
+   /* Disabling QUADSPI breaks the auto-JEDEC loop; suspend it. */
+   busy_flag = true;
+   force_gpio_outputs();
+   for (int i = 0; i < 6; i++) {
+      GPIO_PinState s = (mask >> i) & 1U ? GPIO_PIN_SET : GPIO_PIN_RESET;
+      HAL_GPIO_WritePin(pins[i].port, pins[i].pin, s);
+   }
+   my_printf("gpio mask=0x%02lx:", (unsigned long)mask);
+   for (int i = 0; i < 6; i++) {
+      int rb = HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET;
+      my_printf(" %s=%d", pins[i].name, rb);
+   }
+   my_printf("\r\n");
+}
+
+static void cmd_toggle(int argc, char **argv)
+{
+   uint32_t per = arg_u32(argc > 0 ? argv[0] : NULL, 1U);
+   force_gpio_outputs();
+   my_printf("toggle period=%lu ms (reset to stop)\r\n",
+             (unsigned long)per);
+   busy_flag = true;
+   uint32_t lvl = 0;
+   while (1) {
+      for (int i = 0; i < 6; i++)
+         HAL_GPIO_WritePin(pins[i].port, pins[i].pin,
+                           lvl ? GPIO_PIN_SET : GPIO_PIN_RESET);
+      lvl ^= 1U;
+      HAL_Delay(per);
+   }
+}
+
+static void cmd_abort(void)
+{
+   qspi_abort();
+   /* drain RX FIFO of any leftover data from a botched read */
+   while (QUADSPI->SR & QUADSPI_SR_FTF)
+      (void)QUADSPI->DR;
+   my_printf("abort\r\n");
+}
+
+/* -------- dispatch ------------------------------------------------ */
+
+static void dispatch(char *line)
+{
+   while (*line == ' ' || *line == '\t')
+      line++;
+   if (!*line)
+      return;
+   char op = *line++;
+   while (*line == ' ' || *line == '\t')
+      line++;
+
+   /* chip-erase double-tap confirmation */
+   if (op == 'C' && pend_confirm_C_until &&
+       (int32_t)(HAL_GetTick() - pend_confirm_C_until) < 0) {
+      pend_confirm_C_until = 0;
+      cmd_chip_erase_do();
+      return;
+   }
+   pend_confirm_C_until = 0;
+
+   char *argv[MAX_ARGS];
+   int argc = parse_args(line, argv, MAX_ARGS);
+
+   switch (op) {
+      case 'i': cmd_jedec();                      break;
+      case 'f': cmd_sfdp(argc, argv);             break;
+      case 's': cmd_status(argc, argv);           break;
+      case '?': cmd_query();                      break;
+      case 'r': cmd_read(argc, argv);             break;
+      case 'F': cmd_fast_read(argc, argv);        break;
+      case 'q': cmd_quad_read(argc, argv);        break;
+      case 'X': cmd_quad_io_read(argc, argv);     break;
+      case '2': cmd_dual_read(argc, argv);        break;
+      case '3': cmd_dual_io_read(argc, argv);     break;
+      case 'M': cmd_mm(argc, argv);               break;
+      case 'b': cmd_bench(argc, argv);            break;
+      case 'e': cmd_op_only(argc, argv);          break;
+      case 'W': cmd_wrsr(argc, argv);             break;
+      case 'w': cmd_pp(argc, argv);               break;
+      case 'Q': cmd_qpp(argc, argv);              break;
+      case 'S': cmd_erase(0x20U, 4U, argc, argv); break;
+      case 'B': cmd_erase(0xD8U, 64U, argc, argv);break;
+      case 'C': cmd_chip_erase_pending();         break;
+      case 'P': cmd_autopoll(argc, argv);         break;
+      case '4': cmd_4byte(argc, argv);            break;
+      case 'R': cmd_reset();                      break;
+      case 'D': cmd_dpd();                        break;
+      case 'd': cmd_release_dpd();                break;
+      case 'p': cmd_prescaler(argc, argv);        break;
+      case 'g': cmd_gpio(argc, argv);             break;
+      case 't': cmd_toggle(argc, argv);           break;
+      case 'x': cmd_abort();                      break;
+      case 'h': cmd_help();                       break;
+      default:
+         my_printf("? unknown '%c' (h for help)\r\n", op);
+         break;
+   }
+}
+
+static void cli_putc(char c)
+{
+   while (!(UART4->ISR & USART_ISR_TXE))
+      rx_drain_hw();
+   UART4->TDR = (uint8_t)c;
+   while (!(UART4->ISR & USART_ISR_TC))
+      rx_drain_hw();
+}
+
+void cli_init(void)
+{
+   linelen   = 0;
+   busy_flag = false;
+   rx_head   = 0;
+   rx_tail   = 0;
+   /* clear stale RX */
+   while (UART4->ISR & USART_ISR_RXNE_RXFNE)
+      (void)UART4->RDR;
+   /* Re-route printf so that long TX bursts can't drop incoming RX. */
+   printf_set_output(cli_putc);
+   prompt();
+}
+
+void cli_poll(void)
+{
+   int b;
+   while (uart_rx_byte(&b)) {
+      char c = (char)b;
+      if (c == '\r' || c == '\n') {
+         uart_tx_byte('\r');
+         uart_tx_byte('\n');
+         linebuf[linelen] = '\0';
+         dispatch(linebuf);
+         linelen = 0;
+         prompt();
+      } else if (c == '\b' || c == 0x7F) {
+         if (linelen > 0) {
+            linelen--;
+            uart_tx_byte('\b');
+            uart_tx_byte(' ');
+            uart_tx_byte('\b');
+         }
+      } else if (c >= 0x20 && c < 0x7F && linelen < LINEMAX) {
+         linebuf[linelen++] = c;
+         uart_tx_byte(c);
+      }
+   }
+}

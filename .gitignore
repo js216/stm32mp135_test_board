@@ -12,4 +12,5 @@ fp-info-cache
 #auto_saved_files#
 
 build
+test_out
 config/overlay/lib

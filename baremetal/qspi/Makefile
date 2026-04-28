@@ -1,71 +1,50 @@
-BUILDDIR   = build
-BINARYNAME = $(BUILDDIR)/main
-OBJDIR     = $(BUILDDIR)/obj
-OBJECTS    = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(basename $(SOURCES))))
-LINKSCR    = stm32mp13xx_a7_sysram.ld
-
-SOURCES = \
-	 src/main.c \
-	 src/qspi.c \
-	 drivers/mmu_stm32mp13xx.c \
-	 drivers/system_stm32mp13xx_A7.c \
-	 drivers/startup_stm32mp135fxx_ca7.c \
-	 drivers/syscalls.c \
-	 drivers/irq_ctrl_gic.c \
-	 drivers/stm32mp13xx_hal.c \
-	 drivers/stm32mp13xx_hal_gpio.c \
-	 drivers/stm32mp13xx_hal_rcc.c \
-	 drivers/stm32mp13xx_hal_rcc_ex.c \
-	 drivers/stm32mp13xx_hal_uart.c \
+DIRS := src drivers utils
+HDR := $(wildcard $(addsuffix /*.h,$(DIRS)))
+SRC := $(wildcard $(addsuffix /*.c,$(DIRS)))
+OBJ := $(patsubst %.c,build/%.o,$(SRC))
 
 CFLAGS = \
-	 -g2 \
-	 -O0 \
-	 -Isrc -Idrivers \
-	 -fno-common \
-	 -DUSE_FULL_LL_DRIVER \
-	 -DSTM32MP135Fxx \
-	 -DSTM32MP1 \
-	 -DCORE_CA7 \
-	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
+	 -Idrivers -Isrc -Iutils \
+	 -D__int64_t_defined=1 \
+	 -std=c99 -Wall -Wextra -Wpedantic -Wshadow -Wundef \
+	 -Wmissing-prototypes -Wpointer-arith -Wfloat-equal \
+	 -g3 -Os -MMD -MP \
+	 -mcpu=cortex-a7 -march=armv7ve \
+	 -mfpu=neon-vfpv4 -mfloat-abi=hard -mlittle-endian \
 	 -fdata-sections -ffunction-sections \
-	 -nostartfiles \
-	 -ffreestanding
+	 -ffreestanding -fno-common -nostartfiles
 
 LFLAGS = \
 	 -Wl,--gc-sections \
-	 -Wl,-Map,$(BINARYNAME).map,--cref \
-	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
-	 -T $(LINKSCR) \
+	 -Wl,-Map,build/main.map,--cref \
+	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 \
+	 -mlittle-endian -mfloat-abi=hard \
 	 -specs=nano.specs -specs=nosys.specs \
 	 -nostartfiles \
 	 -ffreestanding \
-	 -Wl,--print-memory-usage \
+	 -Wl,--print-memory-usage
 
-.PHONY: all clean install check-port
+all: build/main.stm32
 
-all: $(BINARYNAME).stm32
+build/main.elf: $(OBJ)
+	arm-none-eabi-gcc $(LFLAGS) -T src/sysram.ld -o $@ $^
+
+build/%.o: %.c
+	mkdir -p $(dir $@)
+	arm-none-eabi-gcc -c $(CPPFLAGS) $(CFLAGS) $(CFLAGS_EXTRA) $< -o $@
+
+%.bin: %.elf
+	arm-none-eabi-objcopy -O binary $< $@
+
+%.stm32: %.bin
+	python3 scripts/stm32_header.py -e $*.elf -b $< -o $@ -t .RESET
+
+.PHONY: all clean install
 
 clean:
 	rm -rf build
 
-check-port:
-ifndef PORT
-	$(error PORT not set. Usage: make install PORT=COM1)
-endif
-
-install: $(BINARYNAME).stm32 check-port
+install: build/main.stm32
 	python3 scripts/uart_boot.py -c $(PORT) -f $<
 
-$(OBJDIR)/%.o: %.c
-	mkdir -p $(dir $@)
-	arm-none-eabi-gcc -c $(CFLAGS) $< -o $@
-
-$(BINARYNAME).elf: $(OBJECTS) $(LINKSCR)
-	arm-none-eabi-gcc $(LFLAGS) -o $@ $(OBJECTS)
-
-$(BINARYNAME).bin: $(BINARYNAME).elf
-	arm-none-eabi-objcopy -O binary $< $@
-
-$(BINARYNAME).stm32: $(BINARYNAME).bin
-	python3 scripts/stm32_header.py -e $(BINARYNAME).elf -b $< -o $@ -t .RESET
+-include $(OBJ:.o=.d)

@@ -2,19 +2,22 @@
 
 /**
  * @file qspi.h
- * @brief QUADSPI bare-register driver for FPGA bring-up
+ * @brief QUADSPI bare-register driver for FPGA bring-up.
+ *        Polled, indirect-mode primary path; memory-mapped and auto-poll
+ *        modes are also exposed.  DMA is NOT implemented.
  * @author Jakob Kastelic
  * @copyright 2026 Stanford Research Systems, Inc.
- *
- * Polled, indirect mode only.  Uses HAL only for GPIO/clock muxing; the
- * QUADSPI peripheral itself is poked directly.
  */
 
 #ifndef QSPI_H
 #define QSPI_H
 
-#include "stm32mp13xx_hal.h"
+#include "stm32mp13xx_hal_def.h"
+#include <stdbool.h>
 #include <stdint.h>
+
+/* Memory-mapped Bank 1 base (FMODE=11). */
+#define QSPI_MM_BASE 0x70000000UL
 
 typedef enum {
    QSPI_LINES_NONE = 0,
@@ -24,8 +27,10 @@ typedef enum {
 } qspi_lines_t;
 
 typedef enum {
-   QSPI_FMODE_WRITE = 0,
-   QSPI_FMODE_READ  = 1,
+   QSPI_FMODE_WRITE     = 0,
+   QSPI_FMODE_READ      = 1,
+   QSPI_FMODE_AUTOPOLL  = 2,
+   QSPI_FMODE_MEMMAPPED = 3,
 } qspi_fmode_t;
 
 typedef struct {
@@ -35,6 +40,7 @@ typedef struct {
    uint8_t addr_bytes;    /* 1..4 */
    uint8_t alt_bytes_len; /* 1..4 */
    uint8_t dummy_cycles;  /* 0..31 */
+   bool ddr;              /* DDR mode (CCR.DDRM) */
    qspi_lines_t inst_lines;
    qspi_lines_t addr_lines;
    qspi_lines_t alt_lines;
@@ -44,12 +50,30 @@ typedef struct {
 
 /* SCLK = quadspi_ker_ck / (prescaler + 1). */
 HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
-                            uint32_t cs_high_cyc, uint32_t sample_shift);
+                            uint32_t cs_high_cyc, uint32_t sample_shift,
+                            bool dual_flash);
 
 HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
                             void *buf, uint32_t timeout_ms);
 
+/* Memory-mapped mode: program CCR with FMODE=11, peripheral auto-issues
+ * flash reads when CPU dereferences QSPI_MM_BASE + offset.  No data_len
+ * needed in the cmd. */
+HAL_StatusTypeDef qspi_mm_enable(const qspi_cmd_t *cmd);
+void qspi_mm_disable(void);
+
+/* Auto-poll status: program PSMKR/PSMAR/PIR + FMODE=10, AND-match,
+ * automatic stop on match (APMS=1). */
+HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
+                                uint32_t match, uint32_t interval_cycles,
+                                uint32_t timeout_ms);
+
 void qspi_abort(void);
 int qspi_busy(void);
+
+/* Accessors used by the CLI '?' command. */
+uint32_t qspi_get_prescaler(void);
+uint32_t qspi_get_fsize(void);
+uint32_t qspi_get_csht(void);
 
 #endif
