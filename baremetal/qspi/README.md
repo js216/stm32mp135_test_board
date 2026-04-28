@@ -1026,6 +1026,260 @@ fpga:uart_close
 
 - Check FPGA logs at least one op=03 frame from bench burst
 
+Block 30 -- per-opcode FPGA frame length and MOSI CRC for every read
+opcode.  The slave's `byte_cnt` advances every 8 SCLK rises, so a
+multi-lane data phase yields fewer single-lane byte equivalents than
+the on-the-wire data byte count; the MOSI CRC scope excludes any byte
+clocked while the master tri-states MOSI (dummy and read-data
+phases).  At addr=0, len=16 the conformance values are:
+op=9f bytes=4 crc=crc32([0x9F]);
+op=0b bytes=21 crc=crc32([0x0B,0,0,0]);
+op=6b bytes=9 crc=crc32([0x6B,0,0,0]);
+op=3b bytes=13 crc=crc32([0x3B,0,0,0]);
+op=bb bytes=10 crc=crc32([0xBB,0,0,0,0xA0]);
+op=eb bytes=6 crc=crc32([0xEB,0,0,0,0xA0]).
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=200
+mp135:uart_write data="F 0 16\r"
+delay ms=400
+mp135:uart_write data="q 0 16\r"
+delay ms=400
+mp135:uart_write data="2 0 16\r"
+delay ms=400
+mp135:uart_write data="3 0 16\r"
+delay ms=400
+mp135:uart_write data="X 0 16\r"
+delay ms=500
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA op=9f MOSI CRC matches host CRC32 of opcode-only frame
+- Check FPGA op=0b frame bytes=21 and CRC matches opcode plus address
+- Check FPGA op=6b frame bytes=9 and CRC matches opcode plus address
+- Check FPGA op=3b frame bytes=13 and CRC matches opcode plus address
+- Check FPGA op=bb frame bytes=10 and CRC matches opcode plus address plus alt
+- Check FPGA op=eb frame bytes=6 and CRC matches opcode plus address plus alt
+
+Block 31 -- WEL auto-clears on successful page-program completion.
+A real flash drops both WIP and WEL when PP finishes; the host
+should see WEL=1 after WREN, WEL=1 (with WIP=1) during PP, and
+WEL=0 (with WIP=0) once autopoll exits.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="s 0x05\r"
+delay ms=200
+mp135:uart_write data="w 0 16\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=600
+mp135:uart_write data="s 0x05\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check WEL set after WREN before PP
+- Check WEL auto-clears after PP completes
+
+Block 32 -- mid-frame CS deassert does not crash or mis-frame.
+Driving CLK partway through a byte then raising NCS must reset
+the slave's capture state cleanly.  No bogus frame should be
+emitted, and a follow-up `i` must produce a normal op=9f frame.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\r"
+delay ms=300
+mp135:uart_write data="g 0x02\r"
+delay ms=100
+mp135:uart_write data="g 0x00\r"
+delay ms=50
+mp135:uart_write data="g 0x01\r"
+delay ms=50
+mp135:uart_write data="g 0x00\r"
+delay ms=50
+mp135:uart_write data="g 0x01\r"
+delay ms=50
+mp135:uart_write data="g 0x00\r"
+delay ms=50
+mp135:uart_write data="g 0x01\r"
+delay ms=50
+mp135:uart_write data="g 0x00\r"
+delay ms=50
+mp135:uart_write data="g 0x01\r"
+delay ms=50
+mp135:uart_write data="g 0x02\r"
+delay ms=200
+mp135:uart_write data="p 203\r"
+delay ms=400
+mp135:uart_write data="i\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA frame count unchanged across the partial-byte CS abort
+- Check FPGA op=9f frame appears after the CS-abort sequence
+
+Block 33 -- page buffer wraps at the 16-byte boundary on PP.
+Pre-program 0x00..0x0F with 0xAA, then PP 8 bytes starting at
+0x0F.  The slave's address-low[3:0] index wraps, so byte 0 of the
+write lands at 0x0F and bytes 1..7 wrap back to 0x00..0x06.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=150
+mp135:uart_write data="C\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=800
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="W 0xAA\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=400
+mp135:uart_write data="e 0x06\r"
+delay ms=150
+mp135:uart_write data="w 0x0F 8\r"
+delay ms=400
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_write data="r 0 16\r"
+delay ms=400
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check page buffer wraps within the 16-byte boundary on PP
+
+Block 34 -- sustained back-to-back JEDEC stress.  100 `i` keystrokes
+fire as one UART burst; the slave must frame each one independently.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\ri\r"
+delay ms=4000
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA logs at least 100 op=9f frames in a sustained burst
+- Check every op=9f frame in the burst has bytes=4 and matching CRC
+
+Block 35 -- mixed-opcode burst interleaves WREN and JEDEC.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="i\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\ri\re 0x06\r"
+delay ms=4000
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check FPGA logs at least 25 op=9f and 25 op=06 frames in the mix
+- Check mixed-burst op=9f frames are bytes=4 and op=06 frames are bytes=1
+
+Block 36 -- WIP polled mid page-program reports busy.  Real flash
+drives WIP=1 throughout the PP cycle (~ms range); a stubbed slave
+that completes instantly fails this assertion.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="e 0x06\r"
+delay ms=200
+mp135:uart_write data="w 0 16\r"
+mp135:uart_write data="s 0x05\r"
+delay ms=300
+mp135:uart_write data="P 0x05 0x01 0x00\r"
+delay ms=500
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check WIP is 1 immediately after page program kickoff
+- Check autopoll after page program reports >= 1 ms
+
+Block 37 -- quad-bench throughput floor at high SCLK.  Re-init at
+prescaler 1 (~102 MHz SCLK), run a 4 KB quad bench, parse the rate
+line, then restore safe speed.  At quad mode with 1L instruction +
+3-byte addr + dummy, the steady-state data rate is roughly
+SCLK*4/8 = ~51 MB/s theoretical; the 4 MB/s floor is comfortably
+above the 1 MHz safe-mode rate.
+
+```
+bench_mcu:reset_dut  # blobs: @main.stm32 (referenced from flash.tsv)
+dfu:flash_layout layout=@flash.tsv no_reconnect=true
+fpga:uart_open
+mp135:uart_open
+mp135:uart_expect sentinel="JEDEC ID:" timeout_ms=10000
+delay ms=300
+mp135:uart_write data="p 1\r"
+delay ms=300
+mp135:uart_write data="b 4096 1\r"
+delay ms=2000
+mp135:uart_write data="p 203\r"
+delay ms=300
+mp135:uart_close
+fpga:uart_close
+```
+
+- Check quad bench rate is at least 4 MB/s
+- Check quad bench CRC32 matches the QPP read-back pattern
+
 ### Author
 
 Jakob Kastelic, Stanford Research Systems

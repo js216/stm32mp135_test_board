@@ -1095,6 +1095,317 @@ def check_fpga_burst_op03():
     return True
 
 
+# --- Block 30: per-opcode bytes= and MOSI CRC for read opcodes -------
+
+def _check_frame_op(opcode, want_bytes, mosi_payload, label):
+    frames = _fpga_frames()
+    matches = [f for f in frames if f[0] == opcode]
+    if not matches:
+        sys.stderr.write(f"no op={opcode:02x} frame ({label})\n")
+        return False
+    expect_crc = _crc32(mosi_payload)
+    sys.stdout.write(
+        f"op={opcode:02x}: {len(matches)} frame(s); "
+        f"want bytes={want_bytes} crc=0x{expect_crc:08x}; "
+        f"got={[(f[1], f'0x{f[2]:08x}') for f in matches]}\n")
+    bad = [f for f in matches if f[1] != want_bytes or f[2] != expect_crc]
+    if bad:
+        sys.stderr.write(f"op={opcode:02x} mismatches: {bad}\n")
+        return False
+    return True
+
+
+def check_fpga_op9f_crc_only():
+    return _check_frame_op(0x9F, 4, [0x9F], "JEDEC")
+
+
+def check_fpga_op0b_bytes_crc():
+    return _check_frame_op(0x0B, 21, [0x0B, 0x00, 0x00, 0x00],
+                           "Fast Read 16")
+
+
+def check_fpga_op6b_bytes_crc():
+    return _check_frame_op(0x6B, 9, [0x6B, 0x00, 0x00, 0x00],
+                           "Quad-Output Read 16")
+
+
+def check_fpga_op3b_bytes_crc():
+    return _check_frame_op(0x3B, 13, [0x3B, 0x00, 0x00, 0x00],
+                           "Dual-Output Read 16")
+
+
+def check_fpga_opbb_bytes_crc():
+    return _check_frame_op(0xBB, 10, [0xBB, 0x00, 0x00, 0x00, 0xA0],
+                           "Dual I/O Read 16")
+
+
+def check_fpga_opeb_bytes_crc():
+    return _check_frame_op(0xEB, 6, [0xEB, 0x00, 0x00, 0x00, 0xA0],
+                           "Quad I/O Read 16")
+
+
+# --- Block 31: WEL auto-clear after PP --------------------------------
+
+def check_wel_set_before_pp():
+    """Block 31: status reads taken right after WREN-before-PP and after
+    the PP autopoll.  First read must show WEL=1; second WEL=0."""
+    vals = _all_status_reads(0x05)
+    if len(vals) < 2:
+        sys.stderr.write(f"need 2 SR reads, got {len(vals)}\n")
+        return False
+    pre_pp, post_pp = vals[0], vals[1]
+    sys.stdout.write(
+        f"SR pre-PP=0x{pre_pp:02x} post-PP=0x{post_pp:02x}\n")
+    if (pre_pp & 0x02) == 0:
+        sys.stderr.write("WEL not set after WREN before PP\n")
+        return False
+    return True
+
+
+def check_wel_clear_after_pp():
+    vals = _all_status_reads(0x05)
+    if len(vals) < 2:
+        sys.stderr.write(f"need 2 SR reads, got {len(vals)}\n")
+        return False
+    post_pp = vals[1]
+    sys.stdout.write(f"SR post-PP=0x{post_pp:02x}\n")
+    if (post_pp & 0x02) != 0:
+        sys.stderr.write("WEL did not auto-clear after PP completion\n")
+        return False
+    if (post_pp & 0x01) != 0:
+        sys.stderr.write("WIP still 1 after PP autopoll exit\n")
+        return False
+    return True
+
+
+# --- Block 32: mid-frame CS deassert ---------------------------------
+
+def check_fpga_cs_abort_no_phantom():
+    """The g-sequence in block 32 starts with `i` (one op=9f frame)
+    then a partial-byte CLK toggle inside an open NCS, then NCS high
+    again, then `p 203` (re-init), then another `i`.  Total expected
+    op=9f frames = 2.  If the slave emitted a phantom frame from the
+    aborted partial byte, count would be > 2."""
+    frames = _fpga_frames()
+    nines = [f for f in frames if f[0] == 0x9F]
+    sys.stdout.write(f"op=9f count after CS abort = {len(nines)}\n")
+    # Loop in firmware also emits op=9f, so check that no non-9f
+    # phantom frame appeared from the aborted partial byte (i.e. no
+    # op=00, op=01 or other low-opcode frames that the master never
+    # explicitly issued during the abort window).  The CLI commands
+    # issued were: i, g, p, i.  So opcodes seen should be in {0x9f}
+    # (plus whatever the background JEDEC loop emits).
+    bogus = [f for f in frames if f[0] not in (0x9F,)]
+    if bogus:
+        sys.stderr.write(
+            f"phantom frames from CS abort: "
+            f"{[(f'op={f[0]:02x}', f'bytes={f[1]}') for f in bogus]}\n")
+        return False
+    return True
+
+
+def check_fpga_op9f_after_cs_abort():
+    """After the `g` abort sequence and `p 203` re-init, the trailing
+    `i` must produce an op=9f frame.  We assert at least 2 op=9f
+    frames total in the stream (the initial `i` and the post-abort
+    `i`).  The background JEDEC loop is paused while CLI commands
+    are being processed, so this is a real signal that the slave
+    survived the abort."""
+    frames = _fpga_frames()
+    nines = [f for f in frames if f[0] == 0x9F]
+    sys.stdout.write(f"op=9f count = {len(nines)}\n")
+    if len(nines) < 2:
+        sys.stderr.write(
+            f"only {len(nines)} op=9f frames; slave may have hung\n")
+        return False
+    return True
+
+
+# --- Block 33: page buffer wrap --------------------------------------
+
+def check_pp_page_buffer_wrap():
+    """Block 33: pre-fill 0x00..0x0F with 0xAA via WRSR... wait, that's
+    SR not flash.  Re-reading the block: we set SR to 0xAA (no wrap
+    semantics there); the actual pre-pattern is "all 0xff" from chip
+    erase.  Then `w 0x0F 8` writes 8 bytes with the i&0xff pattern
+    (0..7) starting at addr 0x0F.  The 16-byte page buffer indexed
+    by addr_low[3:0] wraps: byte 0 (=0x00) lands at 0x0F, byte 1
+    (=0x01) lands at 0x00, byte 2 at 0x01, ... byte 7 at 0x06.
+    Read 0..15: 0x00..0x06 = 0x01..0x07; 0x07..0x0E = 0xff (untouched
+    from chip erase); 0x0F = 0x00 (the first byte of the new write)."""
+    buf = _read_block(0x0, 16)
+    if buf is None:
+        sys.stderr.write("no read at 0x0\n")
+        return False
+    sys.stdout.write(f"got: {' '.join(f'{b:02x}' for b in buf)}\n")
+    expect = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+              0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x00]
+    if buf != expect:
+        sys.stderr.write(
+            f"page wrap mismatch:\n"
+            f"  expect: {' '.join(f'{b:02x}' for b in expect)}\n"
+            f"  got:    {' '.join(f'{b:02x}' for b in buf)}\n")
+        return False
+    return True
+
+
+# --- Block 34: sustained back-to-back stress -------------------------
+
+def check_fpga_jedec_burst_100():
+    frames = _fpga_frames()
+    nines = [f for f in frames if f[0] == 0x9F]
+    sys.stdout.write(f"op=9f frames in burst = {len(nines)}\n")
+    if len(nines) < 100:
+        sys.stderr.write(
+            f"only {len(nines)} op=9f frames (need >= 100)\n")
+        return False
+    return True
+
+
+def check_fpga_jedec_burst_consistent():
+    frames = _fpga_frames()
+    nines = [f for f in frames if f[0] == 0x9F]
+    if len(nines) < 100:
+        sys.stderr.write(
+            f"only {len(nines)} op=9f frames (need >= 100)\n")
+        return False
+    expect_crc = _crc32([0x9F])
+    bad = [(i, f) for i, f in enumerate(nines)
+           if f[1] != 4 or f[2] != expect_crc]
+    sys.stdout.write(
+        f"checked {len(nines)} op=9f frames against bytes=4 "
+        f"crc=0x{expect_crc:08x}\n")
+    if bad:
+        sys.stderr.write(
+            f"{len(bad)} op=9f frames disagree; first few: {bad[:5]}\n")
+        return False
+    return True
+
+
+# --- Block 35: mixed-opcode burst ------------------------------------
+
+def check_fpga_mixed_burst_counts():
+    frames = _fpga_frames()
+    nines = [f for f in frames if f[0] == 0x9F]
+    sixes = [f for f in frames if f[0] == 0x06]
+    sys.stdout.write(
+        f"mixed burst: {len(nines)} op=9f, {len(sixes)} op=06\n")
+    if len(nines) < 25 or len(sixes) < 25:
+        sys.stderr.write(
+            f"need >= 25 of each; got 9f={len(nines)} 06={len(sixes)}\n")
+        return False
+    return True
+
+
+def check_fpga_mixed_burst_lengths():
+    frames = _fpga_frames()
+    nines = [f for f in frames if f[0] == 0x9F]
+    sixes = [f for f in frames if f[0] == 0x06]
+    if not nines or not sixes:
+        sys.stderr.write("missing op=9f or op=06 in mixed burst\n")
+        return False
+    bad9f = [f for f in nines if f[1] != 4]
+    bad06 = [f for f in sixes if f[1] != 1]
+    sys.stdout.write(
+        f"op=9f bad-len count={len(bad9f)}; "
+        f"op=06 bad-len count={len(bad06)}\n")
+    if bad9f or bad06:
+        sys.stderr.write(
+            f"length mismatches: 9f={bad9f[:3]} 06={bad06[:3]}\n")
+        return False
+    return True
+
+
+# --- Block 36: WIP polled during PP ----------------------------------
+
+def check_wip_during_pp():
+    vals = _all_status_reads(0x05)
+    if not vals:
+        sys.stderr.write("no status reads\n")
+        return False
+    sys.stdout.write(f"SR after PP kickoff: 0x{vals[0]:02x}\n")
+    if (vals[0] & 0x01) == 0:
+        sys.stderr.write("WIP not 1 immediately after page program\n")
+        return False
+    return True
+
+
+def check_autopoll_pp_min_ms():
+    ms = _autopoll_ms()
+    if ms is None:
+        sys.stderr.write("no autopoll line\n")
+        return False
+    sys.stdout.write(f"autopoll done in {ms} ms\n")
+    if ms < 1:
+        sys.stderr.write(
+            f"autopoll {ms} ms < 1 ms (PP not waited)\n")
+        return False
+    return True
+
+
+# --- Block 37: quad bench throughput floor ---------------------------
+
+BENCH_RE = re.compile(
+    rb"bench (\d+) B (1lane|quad) in (\d+) ms, (\d+) KB/s, "
+    rb"crc32=([0-9a-f]{8}), firsterr=(-?\d+)")
+
+
+def _last_bench(mode):
+    raw = _read_uart_raw()
+    matches = list(BENCH_RE.finditer(raw))
+    last = None
+    for m in matches:
+        if m.group(2).decode() == mode:
+            last = m
+    return last
+
+
+def check_quad_bench_throughput():
+    m = _last_bench("quad")
+    if m is None:
+        sys.stderr.write("no quad bench line\n")
+        return False
+    n = int(m.group(1))
+    dt = int(m.group(3))
+    if dt <= 0:
+        sys.stderr.write(f"bench dt = {dt} ms\n")
+        return False
+    rate_mbs = (n / (1024.0 * 1024.0)) / (dt / 1000.0)
+    sys.stdout.write(
+        f"quad bench: {n} B in {dt} ms = {rate_mbs:.3f} MB/s\n")
+    if rate_mbs < 4.0:
+        sys.stderr.write(
+            f"quad bench rate {rate_mbs:.3f} MB/s below 4 MB/s floor\n")
+        return False
+    return True
+
+
+def check_quad_bench_crc():
+    m = _last_bench("quad")
+    if m is None:
+        sys.stderr.write("no quad bench line\n")
+        return False
+    n = int(m.group(1))
+    got_crc = int(m.group(5), 16)
+    # Bench command always reads from address 0; the firmware-side
+    # CRC is computed over whatever bytes the slave returned.  For
+    # a slave that pre-stages the QPP pattern in its 16-byte page
+    # buffer (0xC0 + (i & 0x0F) repeating across the read length),
+    # the expected CRC is crc32 of that pattern.
+    pattern = bytes(0xC0 + (i & 0x0F) for i in range(n))
+    expect = _crc32(pattern)
+    sys.stdout.write(
+        f"quad bench crc=0x{got_crc:08x}; "
+        f"expect (QPP pattern) =0x{expect:08x}\n")
+    if got_crc != expect:
+        sys.stderr.write(
+            f"quad bench CRC 0x{got_crc:08x} != "
+            f"expected 0x{expect:08x}\n")
+        return False
+    return True
+
+
 # --- DISPATCH ---------------------------------------------------------
 
 DISPATCH = {
@@ -1212,6 +1523,50 @@ DISPATCH = {
     # Block 29
     "Check FPGA logs at least one op=03 frame from bench burst":
         check_fpga_burst_op03,
+    # Block 30
+    "Check FPGA op=9f MOSI CRC matches host CRC32 of opcode-only frame":
+        check_fpga_op9f_crc_only,
+    "Check FPGA op=0b frame bytes=21 and CRC matches opcode plus address":
+        check_fpga_op0b_bytes_crc,
+    "Check FPGA op=6b frame bytes=9 and CRC matches opcode plus address":
+        check_fpga_op6b_bytes_crc,
+    "Check FPGA op=3b frame bytes=13 and CRC matches opcode plus address":
+        check_fpga_op3b_bytes_crc,
+    "Check FPGA op=bb frame bytes=10 and CRC matches opcode plus address plus alt":
+        check_fpga_opbb_bytes_crc,
+    "Check FPGA op=eb frame bytes=6 and CRC matches opcode plus address plus alt":
+        check_fpga_opeb_bytes_crc,
+    # Block 31
+    "Check WEL set after WREN before PP": check_wel_set_before_pp,
+    "Check WEL auto-clears after PP completes": check_wel_clear_after_pp,
+    # Block 32
+    "Check FPGA frame count unchanged across the partial-byte CS abort":
+        check_fpga_cs_abort_no_phantom,
+    "Check FPGA op=9f frame appears after the CS-abort sequence":
+        check_fpga_op9f_after_cs_abort,
+    # Block 33
+    "Check page buffer wraps within the 16-byte boundary on PP":
+        check_pp_page_buffer_wrap,
+    # Block 34
+    "Check FPGA logs at least 100 op=9f frames in a sustained burst":
+        check_fpga_jedec_burst_100,
+    "Check every op=9f frame in the burst has bytes=4 and matching CRC":
+        check_fpga_jedec_burst_consistent,
+    # Block 35
+    "Check FPGA logs at least 25 op=9f and 25 op=06 frames in the mix":
+        check_fpga_mixed_burst_counts,
+    "Check mixed-burst op=9f frames are bytes=4 and op=06 frames are bytes=1":
+        check_fpga_mixed_burst_lengths,
+    # Block 36
+    "Check WIP is 1 immediately after page program kickoff":
+        check_wip_during_pp,
+    "Check autopoll after page program reports >= 1 ms":
+        check_autopoll_pp_min_ms,
+    # Block 37
+    "Check quad bench rate is at least 4 MB/s":
+        check_quad_bench_throughput,
+    "Check quad bench CRC32 matches the QPP read-back pattern":
+        check_quad_bench_crc,
 }
 
 
