@@ -5,7 +5,6 @@
  * @brief QUADSPI bare-register driver for FPGA bring-up.  Indirect read /
  *        write, memory-mapped read, and auto-poll status modes.  Polled
  *        only; HAL is used for GPIO pin-mux and clock enables.
- *        DMA is intentionally not implemented.
  * @author Jakob Kastelic
  * @copyright 2026 Stanford Research Systems, Inc.
  */
@@ -36,6 +35,9 @@ static int initialised;
 static uint32_t cur_prescaler;
 static uint32_t cur_fsize;
 static uint32_t cur_csht;
+static uint32_t mdma_active_dst;
+static uint32_t mdma_active_len;
+static bool mdma_active;
 
 uint32_t qspi_get_prescaler(void) { return cur_prescaler; }
 uint32_t qspi_get_fsize(void)     { return cur_fsize; }
@@ -49,6 +51,20 @@ static uint32_t lines_to_mode(qspi_lines_t l)
       case QSPI_LINES_4: return 3U;
       default: return 0U;
    }
+}
+
+static void bench_consume_byte(uint8_t b, uint32_t i, uint32_t *crc_io,
+                               uint32_t *first_err_io, uint8_t got16[16])
+{
+   uint32_t crc = *crc_io;
+   if (i < 16U)
+      got16[i] = b;
+   crc ^= (uint32_t)b;
+   for (int j = 0; j < 8; j++)
+      crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
+   if (b != (uint8_t)(i & 0xFFU) && *first_err_io == 0xFFFFFFFFUL)
+      *first_err_io = i;
+   *crc_io = crc;
 }
 
 static void setupgpio(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
@@ -202,13 +218,43 @@ HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
       QUADSPI->AR = cmd->address;
 
    if (cmd->data_len) {
-      volatile uint8_t *const dr8 = (volatile uint8_t *)&QUADSPI->DR;
-      uint8_t *bp                 = (uint8_t *)buf;
-      uint32_t remaining          = cmd->data_len;
+      volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
+      volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
+      uint8_t *bp                   = (uint8_t *)buf;
+      uint32_t remaining            = cmd->data_len;
+      if (fmode == QSPI_FMODE_READ && cmd->data_lines == QSPI_LINES_4) {
+         while (remaining >= 4U) {
+            s = poll_flag(QUADSPI_SR_FTF, deadline);
+            if (s != HAL_OK)
+               return s;
+            const uint32_t w = *dr32;
+            bp[0] = (uint8_t)(w >> 0);
+            bp[1] = (uint8_t)(w >> 8);
+            bp[2] = (uint8_t)(w >> 16);
+            bp[3] = (uint8_t)(w >> 24);
+            bp += 4;
+            remaining -= 4U;
+         }
+      }
       while (remaining) {
-         s = poll_flag(QUADSPI_SR_FTF, deadline);
-         if (s != HAL_OK)
-            return s;
+         if (fmode == QSPI_FMODE_READ) {
+            while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
+               if (QUADSPI->SR & QUADSPI_SR_TEF) {
+                  qspi_abort();
+                  return HAL_ERROR;
+               }
+               if (QUADSPI->SR & QUADSPI_SR_TCF)
+                  break;
+               if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+                  qspi_abort();
+                  return HAL_TIMEOUT;
+               }
+            }
+         } else {
+            s = poll_flag(QUADSPI_SR_FTF, deadline);
+            if (s != HAL_OK)
+               return s;
+         }
          if (fmode == QSPI_FMODE_WRITE)
             *dr8 = *bp++;
          else
@@ -335,71 +381,59 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    if (!raw)
       QUADSPI->AR = 0U;
 
-   my_printf("BENCHDBG poll_kicked t=%lu sr=%08lx\r\n",
-             (unsigned long)HAL_GetTick(),
-             (unsigned long)QUADSPI->SR);
-
    volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
+   volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
    uint32_t crc                  = 0xFFFFFFFFUL;
    uint32_t first_err            = 0xFFFFFFFFUL;
    uint8_t  got16[16]            = {0};
    const uint32_t t0             = HAL_GetTick();
-   uint32_t wait_prints          = 0;
-   uint32_t last_wait_t          = t0;
    uint32_t wait_iters           = 0;
 
-   /* Drain byte-wide. The matching raw-read command uses qspi_xfer(),
-    * which reads DR as bytes and has proven stable against the FPGA
-    * incrementing stream. Word-wide DR reads can disturb byte ordering
-    * on this path, so the bench keeps the same access width as the
-    * correctness-oriented command. */
    uint32_t i = 0;
+
+   if (data_lines == QSPI_LINES_4) {
+      while (i + 4U <= len) {
+         while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
+            wait_iters++;
+            if (QUADSPI->SR & QUADSPI_SR_TEF) {
+               qspi_abort();
+               return HAL_ERROR;
+            }
+            if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+               qspi_abort();
+               return HAL_TIMEOUT;
+            }
+         }
+         const uint32_t w = *dr32;
+         for (uint32_t j = 0; j < 4U; j++) {
+            bench_consume_byte((uint8_t)(w >> (8U * j)), i, &crc,
+                               &first_err, got16);
+            i++;
+         }
+      }
+   }
+
+   /* Keep byte-wide DR draining for 1-lane, and for any non-word tail. */
    while (i < len) {
       while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
          if (QUADSPI->SR & QUADSPI_SR_TCF) break;  /* last bytes */
          wait_iters++;
-         const uint32_t now = HAL_GetTick();
-         if (wait_prints < 5U &&
-             (int32_t)(now - last_wait_t) >= 200) {
-            my_printf("BENCHDBG poll_wait t=%lu i=%lu sr=%08lx\r\n",
-                      (unsigned long)now, (unsigned long)i,
-                      (unsigned long)QUADSPI->SR);
-            wait_prints++;
-            last_wait_t = now;
-         }
          if (QUADSPI->SR & QUADSPI_SR_TEF) {
-            my_printf("BENCHDBG poll_tef sr=%08lx\r\n",
-                      (unsigned long)QUADSPI->SR);
             qspi_abort();
             return HAL_ERROR;
          }
          if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-            my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
-                      (unsigned long)HAL_GetTick(),
-                      (unsigned long)QUADSPI->SR,
-                      (unsigned long)i);
             qspi_abort();
             return HAL_TIMEOUT;
          }
       }
       const uint8_t b = *dr8;
-      if (i < 16U)
-         got16[i] = b;
-      crc ^= (uint32_t)b;
-      for (int j = 0; j < 8; j++)
-         crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
-      const uint8_t exp = (uint8_t)(i & 0xFFU);
-      if (b != exp && first_err == 0xFFFFFFFFUL)
-         first_err = i;
+      bench_consume_byte(b, i, &crc, &first_err, got16);
       i++;
    }
 
    while (!(QUADSPI->SR & QUADSPI_SR_TCF)) {
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-         my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
-                   (unsigned long)HAL_GetTick(),
-                   (unsigned long)QUADSPI->SR,
-                   (unsigned long)i);
          qspi_abort();
          return HAL_TIMEOUT;
       }
@@ -407,10 +441,6 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    QUADSPI->FCR = QUADSPI_FCR_CTCF;
    while (QUADSPI->SR & QUADSPI_SR_BUSY) {
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-         my_printf("BENCHDBG poll_timeout t=%lu sr=%08lx i=%lu\r\n",
-                   (unsigned long)HAL_GetTick(),
-                   (unsigned long)QUADSPI->SR,
-                   (unsigned long)i);
          qspi_abort();
          return HAL_TIMEOUT;
       }
@@ -431,15 +461,17 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
 /* MDMA channel 0 streaming read into DDR.  Direct register programming
  * (HAL not used) so we can pin TSEL = 0x1A (QUADSPI FIFO threshold) per
  * RM0475.  The destination must be 4-byte aligned and lie in DDR. */
-HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
-                                 uint8_t dummy_cycles, uint32_t len,
-                                 bool raw, uint32_t dst_addr,
-                                 uint32_t timeout_ms, bool clean_before)
+HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
+                                  uint8_t dummy_cycles, uint32_t len,
+                                  bool raw, uint32_t dst_addr,
+                                  uint32_t timeout_ms, bool clean_before)
 {
    if (!initialised || len == 0U)
       return HAL_ERROR;
    if (dst_addr & 0x3U)
       return HAL_ERROR;
+   if (mdma_active)
+      return HAL_BUSY;
 
    /* Enable MDMA AHB6 clock.  Idempotent. */
    __HAL_RCC_MDMA_CLK_ENABLE();
@@ -507,15 +539,13 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
        MDMA_CTCR_BWM;
 
    /* CBNDTR.BNDT = block size in bytes (max 0x1FFFF = 128 KB - 1).
-    * For multi-MB transfers, len <= 16 MB  ->  use block-repeat: split
-    * into N = ceil(len / 65536) blocks and BRC = N - 1.  Use 65536-byte
-    * blocks (BNDT = 65536) which divides len cleanly in our test. */
+    * For multi-MB transfers, use block-repeat with 65536-byte blocks.
+    * Decimal tails are handled by the caller as separate <=128 KB chunks. */
    if (len > 0x1FFFFU) {
-      /* Use block-repeat with 65536-byte blocks. */
       if (len & 0xFFFFU)
-         return HAL_ERROR; /* require 64 KB-multiple in this path */
+         return HAL_ERROR;
       const uint32_t blocks = len >> 16; /* len / 65536 */
-      if (blocks > 0xFFFU + 1U)
+      if (blocks == 0U || blocks > 0xFFFU + 1U)
          return HAL_ERROR;
       ch->CBNDTR = (65536U & MDMA_CBNDTR_BNDT_Msk) |
                    ((blocks - 1U) << MDMA_CBNDTR_BRC_Pos) |
@@ -555,11 +585,128 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
    QUADSPI->CR |= QUADSPI_CR_DMAEN;
 
    /* Enable MDMA channel BEFORE the QSPI request can fire. */
-   ch->CCR = MDMA_CCR_EN;
+   ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL;
 
    QUADSPI->CCR = ccr;
    if (!raw)
       QUADSPI->AR = 0U;
+
+   mdma_active_dst = dst_addr;
+   mdma_active_len = len;
+   mdma_active = true;
+   return HAL_OK;
+}
+
+HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
+                                      qspi_lines_t data_lines,
+                                      uint8_t dummy_cycles,
+                                      uint32_t len,
+                                      bool raw,
+                                      uint32_t crc_dr_addr,
+                                      uint32_t timeout_ms)
+{
+   if (!initialised || len == 0U)
+      return HAL_ERROR;
+   if (mdma_active)
+      return HAL_BUSY;
+
+   __HAL_RCC_MDMA_CLK_ENABLE();
+
+   const uint32_t deadline = HAL_GetTick() + timeout_ms;
+   while (QUADSPI->SR & QUADSPI_SR_BUSY) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+   QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
+                  QUADSPI_FCR_CTEF;
+
+   MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
+   ch->CCR = 0U;
+   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
+               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+
+   const uint32_t tlen = 64U;
+   ch->CTCR =
+       (0U << MDMA_CTCR_SINC_Pos) |
+       (0U << MDMA_CTCR_DINC_Pos) |
+       (0U << MDMA_CTCR_SSIZE_Pos) |
+       (0U << MDMA_CTCR_DSIZE_Pos) |
+       (0U << MDMA_CTCR_SINCOS_Pos) |
+       (0U << MDMA_CTCR_DINCOS_Pos) |
+       (0U << MDMA_CTCR_SBURST_Pos) |
+       (0U << MDMA_CTCR_DBURST_Pos) |
+       ((tlen - 1U) << MDMA_CTCR_TLEN_Pos);
+
+   if (len > 0x1FFFFU) {
+      if (len & 0xFFFFU)
+         return HAL_ERROR;
+      const uint32_t blocks = len >> 16;
+      if (blocks == 0U || blocks > 0xFFFU + 1U)
+         return HAL_ERROR;
+      ch->CBNDTR = (65536U & MDMA_CBNDTR_BNDT_Msk) |
+                   ((blocks - 1U) << MDMA_CBNDTR_BRC_Pos);
+   } else {
+      ch->CBNDTR = len & MDMA_CBNDTR_BNDT_Msk;
+   }
+   ch->CBRUR = 0U;
+   ch->CSAR = (uint32_t)&QUADSPI->DR;
+   ch->CDAR = crc_dr_addr;
+   ch->CTBR = 0x1AU & MDMA_CTBR_TSEL_Msk;
+   ch->CMAR = 0U;
+   ch->CMDR = 0U;
+
+   QUADSPI->DLR = len - 1U;
+   QUADSPI->ABR = 0U;
+
+   uint32_t ccr = 0;
+   if (!raw) {
+      ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
+      ccr |= 1U << CCR_IMODE_Pos;
+      ccr |= 1U << CCR_ADMODE_Pos;
+      ccr |= (3U - 1U) << CCR_ADSIZE_Pos;
+   }
+   ccr |= lines_to_mode(data_lines) << CCR_DMODE_Pos;
+   ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
+   ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
+
+   QUADSPI->CR |= QUADSPI_CR_DMAEN;
+   ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL;
+
+   QUADSPI->CCR = ccr;
+   if (!raw)
+      QUADSPI->AR = 0U;
+
+   mdma_active_dst = 0U;
+   mdma_active_len = 0U;
+   mdma_active = true;
+   return HAL_OK;
+}
+
+HAL_StatusTypeDef qspi_mdma_crc_read(uint8_t opcode,
+                                     qspi_lines_t data_lines,
+                                     uint8_t dummy_cycles,
+                                     uint32_t len,
+                                     bool raw,
+                                     uint32_t crc_dr_addr,
+                                     uint32_t timeout_ms)
+{
+   HAL_StatusTypeDef s = qspi_mdma_crc_start(opcode, data_lines,
+                                             dummy_cycles, len, raw,
+                                             crc_dr_addr, timeout_ms);
+   if (s != HAL_OK)
+      return s;
+   return qspi_mdma_finish_no_inval(timeout_ms);
+}
+
+HAL_StatusTypeDef qspi_mdma_finish_no_inval(uint32_t timeout_ms)
+{
+   if (!mdma_active)
+      return HAL_ERROR;
+
+   MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
+   const uint32_t deadline = HAL_GetTick() + timeout_ms;
 
    /* Poll for MDMA CTC (channel transfer complete) AND QSPI TCF. */
    for (;;) {
@@ -570,6 +717,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
          ch->CCR = 0U;
          QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
          qspi_abort();
+         mdma_active = false;
          return HAL_ERROR;
       }
       if (cisr & MDMA_CISR_CTCIF)
@@ -578,6 +726,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
          ch->CCR = 0U;
          QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
          qspi_abort();
+         mdma_active = false;
          return HAL_ERROR;
       }
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
@@ -587,6 +736,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
          ch->CCR = 0U;
          QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
          qspi_abort();
+         mdma_active = false;
          return HAL_TIMEOUT;
       }
    }
@@ -597,6 +747,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
          ch->CCR = 0U;
          QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
          qspi_abort();
+         mdma_active = false;
          return HAL_TIMEOUT;
       }
    }
@@ -606,6 +757,7 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
          ch->CCR = 0U;
          QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
          qspi_abort();
+         mdma_active = false;
          return HAL_TIMEOUT;
       }
    }
@@ -616,11 +768,37 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
    ch->CCR = 0U;
    QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
 
-   /* Invalidate the destination so CPU sees the freshly-DMA'd data. */
-   for (uint32_t a = dst_addr & ~(line_sz - 1U);
-        a < dst_addr + len; a += line_sz)
+   mdma_active = false;
+   return HAL_OK;
+}
+
+void qspi_invalidate_range(uint32_t addr, uint32_t len)
+{
+   const uint32_t line_sz = 32U;
+   for (uint32_t a = addr & ~(line_sz - 1U); a < addr + len; a += line_sz)
       L1C_InvalidateDCacheMVA((void *)a);
    __asm volatile("dsb sy" ::: "memory");
+}
 
-   return HAL_OK;
+HAL_StatusTypeDef qspi_mdma_finish(uint32_t timeout_ms)
+{
+   const uint32_t dst = mdma_active_dst;
+   const uint32_t len = mdma_active_len;
+   HAL_StatusTypeDef s = qspi_mdma_finish_no_inval(timeout_ms);
+   if (s == HAL_OK)
+      qspi_invalidate_range(dst, len);
+   return s;
+}
+
+HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
+                                 uint8_t dummy_cycles, uint32_t len,
+                                 bool raw, uint32_t dst_addr,
+                                 uint32_t timeout_ms, bool clean_before)
+{
+   HAL_StatusTypeDef s = qspi_mdma_start(opcode, data_lines, dummy_cycles,
+                                         len, raw, dst_addr, timeout_ms,
+                                         clean_before);
+   if (s != HAL_OK)
+      return s;
+   return qspi_mdma_finish(timeout_ms);
 }

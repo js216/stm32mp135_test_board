@@ -4,7 +4,7 @@
  * @file qspi.h
  * @brief QUADSPI bare-register driver for FPGA bring-up.
  *        Polled, indirect-mode primary path; memory-mapped and auto-poll
- *        modes are also exposed.  DMA is NOT implemented.
+ *        modes are also exposed.
  * @author Jakob Kastelic
  * @copyright 2026 Stanford Research Systems, Inc.
  */
@@ -99,6 +99,33 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
                                  uint8_t dummy_cycles, uint32_t len,
                                  bool raw, uint32_t dst_addr,
                                  uint32_t timeout_ms, bool clean_before);
+
+HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
+                                  uint8_t dummy_cycles, uint32_t len,
+                                  bool raw, uint32_t dst_addr,
+                                  uint32_t timeout_ms, bool clean_before);
+
+HAL_StatusTypeDef qspi_mdma_finish(uint32_t timeout_ms);
+HAL_StatusTypeDef qspi_mdma_finish_no_inval(uint32_t timeout_ms);
+void qspi_invalidate_range(uint32_t addr, uint32_t len);
+
+/* MDMA channel 0 direct stream into a fixed 8-bit destination such as
+ * CRC1->DR.  This uses byte-sized source and destination transfers, keeps
+ * both addresses fixed, and leaves cache state untouched. */
+HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
+                                      qspi_lines_t data_lines,
+                                      uint8_t dummy_cycles,
+                                      uint32_t len,
+                                      bool raw,
+                                      uint32_t crc_dr_addr,
+                                      uint32_t timeout_ms);
+HAL_StatusTypeDef qspi_mdma_crc_read(uint8_t opcode,
+                                     qspi_lines_t data_lines,
+                                     uint8_t dummy_cycles,
+                                     uint32_t len,
+                                     bool raw,
+                                     uint32_t crc_dr_addr,
+                                     uint32_t timeout_ms);
 
 /* Accessors used by the CLI '?' command. */
 uint32_t qspi_get_prescaler(void);

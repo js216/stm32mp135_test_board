@@ -113,11 +113,10 @@ void sysclk_init(void)
 
    /* PLL4 retuned to drive QSPI kernel clock at 656 MHz (P out), so
     * prescaler=3 yields the 164 MHz Fmax_QSPI per DS13483 Table 76.
-    * Integer mode: VCO = HSE/M x (N+1) = 24/3 x 83 = 664 MHz, in valid
-    * 800 MHz max range; PLL4P is reported by the HAL as 656 MHz on this
-    * board configuration.  ETH and
-    * SDMMC are not used by this demo so the prior PLL4 = 47/23.5 MHz
-    * settings are not load-bearing. */
+    * HAL programs PLLN as N-1; the hardware effective multiplier here
+    * is 82, so PLL4P is 24/3 x 82 = 656 MHz.  ETH and SDMMC are not
+    * used by this demo, so the prior PLL4 = 47/23.5 MHz settings are
+    * not load-bearing. */
    rcc_oscinitstructure.PLL4.PLLState  = RCC_PLL_ON;
    rcc_oscinitstructure.PLL4.PLLSource = RCC_PLL4SOURCE_HSE;
    rcc_oscinitstructure.PLL4.PLLM      = 3;
