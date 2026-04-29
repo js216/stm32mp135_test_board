@@ -17,6 +17,8 @@
 #include "stm32mp135fxx_ca7.h"
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_gpio.h"
+#include "stm32mp13xx_hal_rcc.h"
+#include "stm32mp13xx_hal_rcc_ex.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -27,13 +29,20 @@
 #define READ_CAP 1024U
 #define WRITE_CAP 256U
 #define RXBUF    256
+#define STREAM_CHUNK_BYTES 262144U
+#define CRC32_INIT   0xFFFFFFFFUL
+#define CRC32_XOROUT 0xFFFFFFFFUL
+#define CRC32_POLY   0xEDB88320UL
 
 static char linebuf[LINEMAX + 1];
 static int  linelen;
 static bool busy_flag;
+static bool auto_consume = true;
 static bool four_byte_mode;
 static uint32_t pend_confirm_C_until;
 static uint8_t  io_buf[READ_CAP];
+static uint32_t crc32_table[256];
+static bool crc32_table_ready;
 
 /* Software RX ring drained both from cli_poll and from inside the TX
  * char-write hook -- TX'ing a long printf burst takes longer than the
@@ -108,6 +117,11 @@ static uint32_t arg_u32(const char *s, uint32_t dflt)
    return v;
 }
 
+static uint32_t qspi_kernel_hz(void)
+{
+   return HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_QSPI);
+}
+
 static void hexdump(uint32_t base, const uint8_t *data, uint32_t n)
 {
    for (uint32_t i = 0; i < n; i += 16U) {
@@ -117,6 +131,50 @@ static void hexdump(uint32_t base, const uint8_t *data, uint32_t n)
          my_printf(" %02x", data[i + j]);
       my_printf("\r\n");
    }
+}
+
+static void crc32_table_init(void)
+{
+   if (crc32_table_ready)
+      return;
+   for (uint32_t i = 0; i < 256U; i++) {
+      uint32_t c = i;
+      for (int j = 0; j < 8; j++)
+         c = (c >> 1) ^ (CRC32_POLY & (-(int32_t)(c & 1U)));
+      crc32_table[i] = c;
+   }
+   crc32_table_ready = true;
+}
+
+static inline uint32_t crc32_update_byte(uint32_t crc, uint8_t b)
+{
+   return (crc >> 8) ^ crc32_table[(crc ^ (uint32_t)b) & 0xFFU];
+}
+
+static uint32_t crc32_update_buf(uint32_t crc, const volatile uint8_t *p,
+                                 uint32_t n, uint32_t base,
+                                 uint32_t *first_err)
+{
+   crc32_table_init();
+   for (uint32_t i = 0; i < n; i++) {
+      const uint8_t b = p[i];
+      crc = crc32_update_byte(crc, b);
+      if (first_err != NULL) {
+         const uint8_t exp = (uint8_t)((base + i) & 0xFFU);
+         if (b != exp && *first_err == 0xFFFFFFFFUL)
+            *first_err = base + i;
+      }
+   }
+   return crc;
+}
+
+static uint32_t crc32_expected(uint32_t len)
+{
+   crc32_table_init();
+   uint32_t crc = CRC32_INIT;
+   for (uint32_t i = 0; i < len; i++)
+      crc = crc32_update_byte(crc, (uint8_t)(i & 0xFFU));
+   return crc ^ CRC32_XOROUT;
 }
 
 /* -------- command handlers ---------------------------------------- */
@@ -138,6 +196,8 @@ static void cmd_help(void)
       " M <a> <n>      memory-mapped read\r\n"
       " b <n> [q=0/1] [raw=0/1]  bench streaming read\r\n"
       " m <n> [q=0/1] [raw=0/1]  MDMA streaming read into DDR\r\n"
+      " a 0|1          auto-consume completed DMA buffers off/on\r\n"
+      " A <n> [q=0/1] [raw=1] [chunk=262144] DDR ping-pong MDMA\r\n"
       " j <n> [q=0/1] raw data-only read (no opcode/addr)\r\n"
       " J <b0> ...    raw data-only write (no opcode/addr)\r\n"
       " e [opc=0x06]   opcode-only (WREN)\r\n"
@@ -216,11 +276,12 @@ static void cmd_status(int argc, char **argv)
 
 static void cmd_query(void)
 {
-   my_printf("busy=%d presc=%lu fsize=%lu csht=%lu\r\n",
+   my_printf("busy=%d presc=%lu fsize=%lu csht=%lu qspi_hz=%lu\r\n",
              qspi_busy(),
              (unsigned long)qspi_get_prescaler(),
              (unsigned long)qspi_get_fsize(),
-             (unsigned long)qspi_get_csht());
+             (unsigned long)qspi_get_csht(),
+             (unsigned long)qspi_kernel_hz());
 }
 
 static void cmd_read(int argc, char **argv)
@@ -428,7 +489,8 @@ static void cmd_bench(int argc, char **argv)
    const long firsterr_signed =
        (firsterr == 0xFFFFFFFFU) ? -1L : (long)firsterr;
    my_printf("bench %lu B %s @ presc=%lu in %lu ms, %lu.%lu Mbps, "
-             "crc32=%08lx, firsterr=%ld, got=%02x %02x %02x %02x "
+             "crc32=%08lx, expect=%08lx, firsterr=%ld, "
+             "got=%02x %02x %02x %02x "
              "%02x %02x %02x %02x %02x %02x %02x %02x "
              "%02x %02x %02x %02x\r\n",
              (unsigned long)len,
@@ -438,6 +500,7 @@ static void cmd_bench(int argc, char **argv)
              (unsigned long)(mbps_x10 / 10U),
              (unsigned long)(mbps_x10 % 10U),
              (unsigned long)crc,
+             (unsigned long)crc32_expected(len),
              firsterr_signed,
              got16[0], got16[1], got16[2], got16[3],
              got16[4], got16[5], got16[6], got16[7],
@@ -472,20 +535,46 @@ static void cmd_mdma(int argc, char **argv)
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
    const uint8_t dummy   = raw ? 0U : 8U;
    const uint32_t dst    = DEF_DDR_BASE;
+   volatile uint8_t *const p = (volatile uint8_t *)dst;
 
+   /* The FPGA test pattern repeats every 256 bytes.  Poison the full
+    * destination first so an early or partial MDMA transfer cannot pass
+    * by leaving stale pattern bytes from a previous run in DDR. */
+   const uint32_t poison_t0 = HAL_GetTick();
+   for (uint32_t i = 0; i < len; i++)
+      p[i] = (uint8_t)(~i & 0xFFU);
+   __asm volatile("dsb sy" ::: "memory");
+   const uint32_t poison_ms = HAL_GetTick() - poison_t0;
+
+   my_printf("mdma_begin %lu B %s\r\n",
+             (unsigned long)len,
+             quad ? "quad" : "1lane");
    const uint32_t t0 = HAL_GetTick();
    HAL_StatusTypeDef s = qspi_mdma_read(opcode, dl, dummy, len,
-                                        raw != 0U, dst, 60000U);
-   const uint32_t dt_raw = HAL_GetTick() - t0;
+                                        raw != 0U, dst, 60000U, true);
+   const uint32_t xfer_ms = HAL_GetTick() - t0;
    if (s != HAL_OK) {
       my_printf("ERR mdma (%d) dt=%lu\r\n",
-                (int)s, (unsigned long)dt_raw);
+                (int)s, (unsigned long)xfer_ms);
       busy_flag = false;
       return;
    }
+   uint32_t xfer_dt = xfer_ms;
+   if (xfer_dt == 0U) xfer_dt = 1U;
+   uint32_t xfer_mbps_x10;
+   if (len <= 50000000U)
+      xfer_mbps_x10 = (len * 80U) / (xfer_dt * 1000U);
+   else
+      xfer_mbps_x10 = ((len / 1000U) * 80U) / xfer_dt;
+   my_printf("mdma_xfer %lu B %s in %lu ms, %lu.%lu Mbps\r\n",
+             (unsigned long)len,
+             quad ? "quad" : "1lane",
+             (unsigned long)xfer_ms,
+             (unsigned long)(xfer_mbps_x10 / 10U),
+             (unsigned long)(xfer_mbps_x10 % 10U));
 
    /* CRC32 + first-error scan over the DDR buffer. */
-   const volatile uint8_t *p = (const volatile uint8_t *)dst;
+   const uint32_t validate_t0 = HAL_GetTick();
    uint32_t crc       = 0xFFFFFFFFUL;
    uint32_t first_err = 0xFFFFFFFFUL;
    for (uint32_t i = 0; i < len; i++) {
@@ -498,8 +587,9 @@ static void cmd_mdma(int argc, char **argv)
          first_err = i;
    }
    crc ^= 0xFFFFFFFFUL;
+   const uint32_t validate_ms = HAL_GetTick() - validate_t0;
 
-   uint32_t dt = dt_raw;
+   uint32_t dt = xfer_ms;
    if (dt == 0U) dt = 1U;
    uint32_t mbps_x10;
    if (len <= 50000000U)
@@ -510,15 +600,128 @@ static void cmd_mdma(int argc, char **argv)
    const long firsterr_signed =
        (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
    my_printf("mdma %lu B %s in %lu ms, %lu.%lu Mbps, "
-             "crc32=%08lx, firsterr=%ld\r\n",
+             "crc32=%08lx, expect=%08lx, firsterr=%ld, "
+             "xfer=%lu ms, validate=%lu ms, "
+             "poison=%lu ms, auto=%s\r\n",
+             (unsigned long)len,
+             quad ? "quad" : "1lane",
+             (unsigned long)dt,
+             (unsigned long)(mbps_x10 / 10U),
+             (unsigned long)(mbps_x10 % 10U),
+             (unsigned long)crc,
+             (unsigned long)crc32_expected(len),
+             firsterr_signed,
+             (unsigned long)xfer_ms,
+             (unsigned long)validate_ms,
+             (unsigned long)poison_ms,
+             auto_consume ? "on" : "off");
+   busy_flag = true;
+}
+
+/* DDR ping-pong auto-consume MDMA path.  This keeps the bulk-DDR `m`
+ * command intact but gives sustained-stream bring-up a separate command
+ * whose validation consumes completed chunks into one running CRC. */
+static void cmd_auto_stream(int argc, char **argv)
+{
+   uint32_t len   = arg_u32(argc > 0 ? argv[0] : NULL, 4096U);
+   uint32_t quad  = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
+   uint32_t raw   = arg_u32(argc > 2 ? argv[2] : NULL, 1U);
+   uint32_t chunk = arg_u32(argc > 3 ? argv[3] : NULL, STREAM_CHUNK_BYTES);
+   if (len == 0U)
+      len = 4096U;
+   if (chunk == 0U)
+      chunk = STREAM_CHUNK_BYTES;
+   if (chunk & 0xFFFFU) {
+      my_printf("ERR stream: chunk must be 64 KB-aligned\r\n");
+      return;
+   }
+   if (len & 0xFFFFU) {
+      my_printf("ERR stream: len must be 64 KB-aligned\r\n");
+      return;
+   }
+   busy_flag = true;
+
+   const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
+   const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
+   const uint8_t dummy   = raw ? 0U : 8U;
+
+   uint32_t crc       = CRC32_INIT;
+   uint32_t first_err = 0xFFFFFFFFUL;
+   uint32_t done      = 0U;
+   uint32_t chunks    = 0U;
+   const uint32_t t0  = HAL_GetTick();
+
+   while (done < len) {
+      uint32_t n = len - done;
+      if (n > chunk)
+         n = chunk;
+      volatile uint8_t *p =
+          (volatile uint8_t *)(DEF_DDR_BASE + ((chunks & 1U) * chunk));
+      HAL_StatusTypeDef s = qspi_mdma_read(opcode, dl, dummy, n,
+                                           raw != 0U, (uint32_t)p, 60000U,
+                                           false);
+      if (s != HAL_OK) {
+         my_printf("ERR stream (%d) done=%lu\r\n",
+                   (int)s, (unsigned long)done);
+         busy_flag = false;
+         return;
+      }
+      if (auto_consume)
+         crc = crc32_update_buf(crc, p, n, done, NULL);
+      done += n;
+      chunks++;
+   }
+
+   const uint32_t dt_raw = HAL_GetTick() - t0;
+   uint32_t dt = dt_raw;
+   if (dt == 0U)
+      dt = 1U;
+   uint32_t mbps_x10;
+   if (len <= 50000000U)
+      mbps_x10 = (len * 80U) / (dt * 1000U);
+   else
+      mbps_x10 = ((len / 1000U) * 80U) / dt;
+
+   if (!auto_consume) {
+      crc = CRC32_INIT;
+      first_err = 0xFFFFFFFFUL;
+   }
+   crc ^= CRC32_XOROUT;
+   const uint32_t expect_crc = crc32_expected(len);
+   if (auto_consume)
+      first_err = (crc == expect_crc) ? 0xFFFFFFFFUL : 0xFFFFFFFEUL;
+   const long firsterr_signed =
+       (first_err == 0xFFFFFFFEU) ? -2L :
+       (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
+   my_printf("stream %lu B %s in %lu ms, %lu.%lu Mbps, crc32=%08lx, "
+             "expect=%08lx, firsterr=%ld, chunk=%lu, chunks=%lu, buf=%s, auto=%s, "
+             "presc=%lu, qspi_hz=%lu\r\n",
              (unsigned long)len,
              quad ? "quad" : "1lane",
              (unsigned long)dt_raw,
              (unsigned long)(mbps_x10 / 10U),
              (unsigned long)(mbps_x10 % 10U),
              (unsigned long)crc,
-             firsterr_signed);
+             (unsigned long)expect_crc,
+             firsterr_signed,
+             (unsigned long)chunk,
+             (unsigned long)chunks,
+             "ddr",
+             auto_consume ? "on" : "off",
+             (unsigned long)qspi_get_prescaler(),
+             (unsigned long)qspi_kernel_hz());
    busy_flag = true;
+}
+
+static void cmd_auto_consume(int argc, char **argv)
+{
+   if (argc < 1) {
+      my_printf("auto=%s\r\n", auto_consume ? "on" : "off");
+      return;
+   }
+   uint32_t on = arg_u32(argv[0], auto_consume ? 1U : 0U);
+   auto_consume = on ? true : false;
+   my_printf("auto=%s\r\n", auto_consume ? "on" : "off");
 }
 
 /* Raw data-only read: IMODE=ADMODE=ABMODE=0, just DMODE on the wire.
@@ -1004,6 +1207,8 @@ static void dispatch(char *line)
       case 'M': cmd_mm(argc, argv);               break;
       case 'b': cmd_bench(argc, argv);            break;
       case 'm': cmd_mdma(argc, argv);             break;
+      case 'a': cmd_auto_consume(argc, argv);     break;
+      case 'A': cmd_auto_stream(argc, argv);      break;
       case 'j': cmd_raw_read(argc, argv);         break;
       case 'J': cmd_raw_write(argc, argv);        break;
       case 'e': cmd_op_only(argc, argv);          break;

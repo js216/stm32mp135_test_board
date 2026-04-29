@@ -90,6 +90,9 @@ Type a single-letter command (followed by space-separated decimal or
 | `3 <addr> <len>`             | Dual-I/O read `0xBB`, alt-byte `0xA0`, 4 dummy   | `op=bb read 16 @ 0x0`      |
 | `M <addr> <len>`             | Memory-mapped read at `0x70000000+addr`          | `MM read 16 @ 0x0`         |
 | `b <len> [quad=0/1] [raw=0/1]` | Streaming bench: read N bytes (no buffer cap), validate against incrementing pattern (i & 0xFF), report KB/s + CRC32 + first-error offset.  `raw=1` skips IMODE / ADMODE -- only the data-phase bytes hit the wire (matches a generic SPI slave, no flash framing). | `bench 1048576 B quad in 165 ms, 6362 KB/s, crc32=DEADBEEF, firsterr=-1` |
+| `a [0/1]`                    | Auto-consume mode for DMA streaming work. With no arg, print state. `1` means completed DMA buffers should be consumed into CRC while DMA continues; `0` disables that path for bring-up diagnostics. Existing polling `b` and bulk-DDR `m` commands remain available either way. | `auto=on` |
+| `m <len> [quad=0/1] [raw=0/1]` | Bulk MDMA read into DDR, then validate incrementing pattern and CRC32. Prints the transfer timestamp separately from validation/poison timing; `auto=` records the selected auto-consume state for streaming follow-up tests. | `mdma 1048576 B 1lane in ... auto=on` |
+| `A <len> [quad=0/1] [raw=1] [chunk=262144]` | DDR ping-pong auto-consume MDMA path. Alternates two DDR buffers, consumes each completed chunk into a running CRC32, and compares against the expected incrementing-pattern CRC. `len` and `chunk` must be 64 KiB-aligned. This is separate from `b` and `m` so the polling and bulk-DDR tests remain available. | `stream 1048576 B 1lane in ... crc32=... expect=... auto=on` |
 | `j <len> [quad=0/1]`         | Raw data-only read (IMODE=0, ADMODE=0).  No opcode / address byte on the wire -- just `len` bytes clocked in MISO.  Cap 1024 B | `raw read 16 (1lane)` |
 | `J <b0> [b1...]`             | Raw data-only write.  Bytes are clocked out MOSI with no opcode / address phase | `raw wrote 4 bytes` |
 
@@ -189,7 +192,7 @@ fpga:uart_close
 - Check FPGA UART captured op=9f frames from the JEDEC loop
 
 Block 2 -- presc=1 quad diagnostic.  Drives the bench at the highest
-SCLK (~332 MHz nominal, well over the chip's 166 MHz Fmax) where the
+SCLK (~328 MHz nominal, well over the chip's 166 MHz Fmax) where the
 single-line bench output has historically been MISSING.  The firmware
 emits `BENCHDBG ...` traces around the poll loop and `cmd_bench`
 boundary; the fault handlers emit single-letter markers (U/S/P/D/R/F)
@@ -280,12 +283,12 @@ Prescaler -> nominal SCLK at this PLL config:
 
 | Prescaler | SCLK |
 |-----------|------|
-| 203 | ~3.25 MHz |
-| 63  | ~10.4 MHz |
-| 15  | ~41.5 MHz |
-| 5   | ~110.7 MHz |
-| 2   | ~221 MHz (over chip spec; usually MISSING) |
-| 1   | ~332 MHz (over chip spec; usually MISSING) |
+| 203 | ~3.22 MHz |
+| 63  | ~10.25 MHz |
+| 15  | ~41.0 MHz |
+| 5   | ~109.3 MHz |
+| 2   | ~218.7 MHz (over chip spec; usually MISSING) |
+| 1   | ~328 MHz (over chip spec; usually MISSING) |
 
 Block 11 below is the combined sweep -- runs all 6 prescalers x 2 modes
 in one plan.  It is the comprehensive sanity gate that only goes green

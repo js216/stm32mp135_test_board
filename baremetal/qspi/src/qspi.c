@@ -434,7 +434,7 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
 HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
                                  uint8_t dummy_cycles, uint32_t len,
                                  bool raw, uint32_t dst_addr,
-                                 uint32_t timeout_ms)
+                                 uint32_t timeout_ms, bool clean_before)
 {
    if (!initialised || len == 0U)
       return HAL_ERROR;
@@ -463,15 +463,17 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
    ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
                MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
 
-   /* Clean+invalidate the destination cache range so:
+   /* Clean+invalidate the destination cache range when requested so:
     *  (a) any dirty lines won't get written back over MDMA data, and
     *  (b) a subsequent CPU read picks up the fresh DDR contents.
     * The Cortex-A7 minimum L1 D-line is 32 B; loop is conservative. */
    const uint32_t line_sz = 32U;
-   for (uint32_t a = dst_addr & ~(line_sz - 1U);
-        a < dst_addr + len; a += line_sz)
-      L1C_CleanInvalidateDCacheMVA((void *)a);
-   __asm volatile("dsb sy" ::: "memory");
+   if (clean_before) {
+      for (uint32_t a = dst_addr & ~(line_sz - 1U);
+           a < dst_addr + len; a += line_sz)
+         L1C_CleanInvalidateDCacheMVA((void *)a);
+      __asm volatile("dsb sy" ::: "memory");
+   }
 
    /* Number of bytes per buffer transfer. Choose 64 B = 16 beats of
     * 32-bit (matches AXI/AHB max burst length on this CPU bus).  TLEN
