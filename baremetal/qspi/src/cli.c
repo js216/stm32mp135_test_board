@@ -24,6 +24,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit);
+
 #define LINEMAX  80
 #define MAX_ARGS 8
 #define READ_CAP 1024U
@@ -658,6 +660,10 @@ static void cmd_help(void)
       " r <a> <n> [op=0x03]   1-lane read\r\n"
       " F <a> <n>      fast read 0x0B\r\n"
       " q <a> <n>      quad-output read 0x6B\r\n"
+      " Y <n>          quad one-hot diagnostic read 0x6C @0\r\n"
+      " Z <n>          quad byte diagnostic read 0x6D @0\r\n"
+      " W <n>          quad nibble-hold diagnostic read 0x6E @0\r\n"
+      " U <n>          quad nibble-ramp diagnostic read 0x6F @0\r\n"
       " X <a> <n>      quad-I/O read 0xEB\r\n"
       " 2 <a> <n>      dual-output read 0x3B\r\n"
       " 3 <a> <n>      dual-I/O read 0xBB (alt=0xA0, 4 dummy)\r\n"
@@ -671,7 +677,7 @@ static void cmd_help(void)
       " j <n> [q=0/1] raw data-only read (no opcode/addr)\r\n"
       " J <b0> ...    raw data-only write (no opcode/addr)\r\n"
       " e [opc=0x06]   opcode-only (WREN)\r\n"
-      " W <v> [op=0x01]  write status reg (op + 1B data)\r\n"
+      " v <v> [op=0x01]  write status reg (op + 1B data)\r\n"
       " w <a> <n> [op=0x02]   1-lane page program\r\n"
       " Q <a> <n>      quad-input PP 0x32\r\n"
       " S <a>          sector erase 4 KB (0x20)\r\n"
@@ -682,10 +688,11 @@ static void cmd_help(void)
       " R              soft reset 0x66 0x99\r\n"
       " D              deep power-down 0xB9\r\n"
       " d              release DPD 0xAB\r\n"
-      " p <n> [s]      set prescaler, optional sample shift\r\n"
+      " p <n> [s] [dlyb_sel] [unit]  set prescaler/sample/DLYB\r\n"
       " g <mask6>      raw GPIO drive (bits: CLK NCS IO0 IO1 IO2 IO3)\r\n"
       " G              raw GPIO read  (bits: CLK NCS IO0 IO1 IO2 IO3)\r\n"
       " k <n> [q=0/1] [io=1]  bit-bang raw read over GPIO\r\n"
+      " K <n>          bit-bang 0x6B quad-output read @0\r\n"
       " t [ms=1]       toggle all 6 pins forever (reset to stop)\r\n"
       " x              abort + drain FIFO\r\n"
       " h              this help\r\n");
@@ -815,6 +822,82 @@ static void cmd_quad_read(int argc, char **argv)
    my_printf("op=6b read %lu @ 0x%08lx\r\n",
              (unsigned long)len, (unsigned long)addr);
    hexdump(addr, io_buf, len);
+}
+
+static void cmd_quad_onehot_read(int argc, char **argv)
+{
+   uint32_t len = arg_u32(argc > 0 ? argv[0] : NULL, 32U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x6CU,
+      .address      = 0U, .addr_bytes = 3U,
+      .dummy_cycles = 7U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_4, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR quad1h\r\n");
+      return;
+   }
+   my_printf("op=6c read %lu @ 0x00000000\r\n", (unsigned long)len);
+   hexdump(0U, io_buf, len);
+}
+
+static void cmd_quad_byte_diag_read(int argc, char **argv)
+{
+   uint32_t len = arg_u32(argc > 0 ? argv[0] : NULL, 32U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x6DU,
+      .address      = 0U, .addr_bytes = 3U,
+      .dummy_cycles = 7U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_4, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR quadbd\r\n");
+      return;
+   }
+   my_printf("op=6d read %lu @ 0x00000000\r\n", (unsigned long)len);
+   hexdump(0U, io_buf, len);
+}
+
+static void cmd_quad_nibble_hold_read(int argc, char **argv)
+{
+   uint32_t len = arg_u32(argc > 0 ? argv[0] : NULL, 32U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x6EU,
+      .address      = 0U, .addr_bytes = 3U,
+      .dummy_cycles = 7U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_4, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR quadnh\r\n");
+      return;
+   }
+   my_printf("op=6e read %lu @ 0x00000000\r\n", (unsigned long)len);
+   hexdump(0U, io_buf, len);
+}
+
+static void cmd_quad_nibble_ramp_read(int argc, char **argv)
+{
+   uint32_t len = arg_u32(argc > 0 ? argv[0] : NULL, 32U);
+   if (len > READ_CAP) len = READ_CAP;
+   const qspi_cmd_t c = {
+      .instruction  = 0x6FU,
+      .address      = 0U, .addr_bytes = 3U,
+      .dummy_cycles = 7U,
+      .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .data_lines   = QSPI_LINES_4, .data_len   = len,
+   };
+   if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
+      my_printf("ERR quadnr\r\n");
+      return;
+   }
+   my_printf("op=6f read %lu @ 0x00000000\r\n", (unsigned long)len);
+   hexdump(0U, io_buf, len);
 }
 
 static void cmd_quad_io_read(int argc, char **argv)
@@ -1618,18 +1701,24 @@ static void cmd_prescaler(int argc, char **argv)
       my_printf("ERR presc range\r\n");
       return;
    }
-   /* Enable 1/2-cycle sample shift at high SCLK by default, but allow
-    * manual override for FPGA timing bring-up. */
-   const uint32_t sshift = arg_u32(argc > 1 ? argv[1] : NULL,
-                                   (p <= 5U) ? 1U : 0U) ? 1U : 0U;
+   const uint32_t sshift =
+      arg_u32(argc > 1 ? argv[1] : NULL, (p <= 5U) ? 1U : 0U) ? 1U : 0U;
+   const uint32_t dlyb_sel = arg_u32(argc > 2 ? argv[2] : NULL, 0U);
+   const uint32_t dlyb_unit =
+      dlyb_sel ? arg_u32(argc > 3 ? argv[3] : NULL, 0x7FU) : 0U;
+   if (qspi_set_dlyb(dlyb_sel, dlyb_unit) != HAL_OK) {
+      my_printf("ERR dlyb range\r\n");
+      return;
+   }
    if (qspi_init(p, qspi_get_fsize(), qspi_get_csht(), sshift, false)
        != HAL_OK) {
       my_printf("ERR reinit\r\n");
       return;
    }
    busy_flag = true;
-   my_printf("presc=%lu sshift=%lu\r\n",
-             (unsigned long)p, (unsigned long)sshift);
+   my_printf("presc=%lu sshift=%lu dlyb=%lu unit=%lu\r\n",
+             (unsigned long)p, (unsigned long)sshift,
+             (unsigned long)dlyb_sel, (unsigned long)dlyb_unit);
 }
 
 /* -------- raw GPIO bring-up helpers ------------------------------- */
@@ -1649,15 +1738,31 @@ static const struct pin_def pins[6] = {
    { QSPI_IO3_PORT, QSPI_IO3_PIN, "IO3" },
 };
 
-static void config_gpio_pin(int i, uint32_t mode)
+#ifdef GPIO_SPEED_FREQ_LOW
+#define GPIO_BITBANG_OUTPUT_SPEED GPIO_SPEED_FREQ_LOW
+#else
+#define GPIO_BITBANG_OUTPUT_SPEED GPIO_SPEED_FREQ_MEDIUM
+#endif
+
+static void config_gpio_pin_speed(int i, uint32_t mode, uint32_t speed)
 {
    GPIO_InitTypeDef g = {
       .Pin   = pins[i].pin,
       .Mode  = mode,
       .Pull  = GPIO_NOPULL,
-      .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+      .Speed = speed,
    };
    HAL_GPIO_Init(pins[i].port, &g);
+}
+
+static void config_gpio_pin(int i, uint32_t mode)
+{
+   config_gpio_pin_speed(i, mode, GPIO_SPEED_FREQ_VERY_HIGH);
+}
+
+static void config_gpio_bitbang_output(int i)
+{
+   config_gpio_pin_speed(i, GPIO_MODE_OUTPUT_PP, GPIO_BITBANG_OUTPUT_SPEED);
 }
 
 static void force_gpio_outputs(void)
@@ -1685,17 +1790,35 @@ static uint32_t gpio_read_idx(int i)
    return HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET;
 }
 
+static uint32_t gpio_read_nibble_raw(void)
+{
+   const uint32_t io0 = (QSPI_IO0_PORT->IDR & QSPI_IO0_PIN) ? 1U : 0U;
+   const uint32_t io1 = (QSPI_IO1_PORT->IDR & QSPI_IO1_PIN) ? 1U : 0U;
+   const uint32_t io2 = (QSPI_IO2_PORT->IDR & QSPI_IO2_PIN) ? 1U : 0U;
+   const uint32_t io3 = (QSPI_IO3_PORT->IDR & QSPI_IO3_PIN) ? 1U : 0U;
+
+   return io0 | (io1 << 1) | (io2 << 2) | (io3 << 3);
+}
+
 static void gpio_bitbang_delay(void)
 {
-   for (volatile uint32_t i = 0; i < 20U; i++)
+   __asm volatile("dsb sy" ::: "memory");
+   for (volatile uint32_t i = 0; i < 2000U; i++)
       __asm volatile("nop");
+   __asm volatile("dsb sy" ::: "memory");
+}
+
+static void gpio_k_settle_delay(void)
+{
+   for (uint32_t i = 0; i < 8U; i++)
+      gpio_bitbang_delay();
 }
 
 static void gpio_prepare_bitbang(void)
 {
    QUADSPI->CR &= ~QUADSPI_CR_EN;
-   config_gpio_pin(0, GPIO_MODE_OUTPUT_PP); /* CLK */
-   config_gpio_pin(1, GPIO_MODE_OUTPUT_PP); /* NCS */
+   config_gpio_bitbang_output(0); /* CLK */
+   config_gpio_bitbang_output(1); /* NCS */
    for (int i = 2; i < 6; i++)
       config_gpio_pin(i, GPIO_MODE_INPUT);
    gpio_write_idx(0, 0U);
@@ -1711,6 +1834,43 @@ static uint32_t gpio_clock_sample_nibble(void)
    gpio_bitbang_delay();
    return gpio_read_idx(2) | (gpio_read_idx(3) << 1) |
           (gpio_read_idx(4) << 2) | (gpio_read_idx(5) << 3);
+}
+
+static void gpio_k_clock(void)
+{
+   gpio_write_idx(0, 0U);
+   gpio_k_settle_delay();
+   gpio_write_idx(0, 1U);
+   gpio_k_settle_delay();
+}
+
+static uint32_t gpio_k_clock_sample_nibble(void)
+{
+   gpio_write_idx(0, 0U);
+   gpio_k_settle_delay();
+   const uint32_t a = gpio_read_nibble_raw();
+   gpio_k_settle_delay();
+   const uint32_t b = gpio_read_nibble_raw();
+   gpio_k_settle_delay();
+   const uint32_t c = gpio_read_nibble_raw();
+   gpio_write_idx(0, 1U);
+   gpio_k_settle_delay();
+   return (a & b) | (a & c) | (b & c);
+}
+
+static void gpio_clock_out_io0(uint32_t bit)
+{
+   gpio_write_idx(0, 0U);
+   gpio_write_idx(2, bit);
+   gpio_bitbang_delay();
+   gpio_write_idx(0, 1U);
+   gpio_bitbang_delay();
+}
+
+static void gpio_send_io0_byte(uint8_t v)
+{
+   for (int bit = 7; bit >= 0; bit--)
+      gpio_clock_out_io0((v >> bit) & 1U);
 }
 
 static void cmd_gpio(int argc, char **argv)
@@ -1790,6 +1950,53 @@ static void cmd_gpio_bitbang_read(int argc, char **argv)
    hexdump(0U, io_buf, len);
 }
 
+static void cmd_gpio_6b_read(int argc, char **argv)
+{
+   uint32_t len = arg_u32(argc > 0 ? argv[0] : NULL, 16U);
+   uint8_t nibbles[32];
+   uint32_t nibble_count = 0U;
+   if (len > READ_CAP)
+      len = READ_CAP;
+
+   busy_flag = true;
+   gpio_prepare_bitbang();
+   config_gpio_bitbang_output(2); /* IO0 command/address */
+   gpio_write_idx(2, 0U);
+   gpio_write_idx(1, 0U);
+   gpio_bitbang_delay();
+
+   gpio_send_io0_byte(0x6BU);
+   gpio_send_io0_byte(0x00U);
+   gpio_send_io0_byte(0x00U);
+   gpio_send_io0_byte(0x00U);
+
+   gpio_write_idx(0, 0U);
+   for (int i = 2; i < 6; i++)
+      config_gpio_pin(i, GPIO_MODE_INPUT);
+
+   for (uint32_t i = 0; i < 8U; i++)
+      gpio_k_clock();
+
+   for (uint32_t n = 0; n < len; n++) {
+      uint32_t lo = gpio_k_clock_sample_nibble();
+      uint32_t hi = gpio_k_clock_sample_nibble();
+      if (nibble_count < (uint32_t)sizeof(nibbles))
+         nibbles[nibble_count++] = (uint8_t)lo;
+      if (nibble_count < (uint32_t)sizeof(nibbles))
+         nibbles[nibble_count++] = (uint8_t)hi;
+      io_buf[n] = (uint8_t)((hi << 4) | lo);
+   }
+
+   gpio_write_idx(0, 0U);
+   gpio_write_idx(1, 1U);
+   my_printf("bb 6b read %lu @ 0x00000000\r\n", (unsigned long)len);
+   hexdump(0U, io_buf, len);
+   my_printf("bb 6b nibbles:");
+   for (uint32_t i = 0; i < nibble_count; i++)
+      my_printf(" %x", nibbles[i] & 0xfU);
+   my_printf("\r\n");
+}
+
 static void cmd_toggle(int argc, char **argv)
 {
    uint32_t per = arg_u32(argc > 0 ? argv[0] : NULL, 1U);
@@ -1848,6 +2055,10 @@ static void dispatch(char *line)
       case 'r': cmd_read(argc, argv);             break;
       case 'F': cmd_fast_read(argc, argv);        break;
       case 'q': cmd_quad_read(argc, argv);        break;
+      case 'Y': cmd_quad_onehot_read(argc, argv); break;
+      case 'Z': cmd_quad_byte_diag_read(argc, argv); break;
+      case 'W': cmd_quad_nibble_hold_read(argc, argv); break;
+      case 'U': cmd_quad_nibble_ramp_read(argc, argv); break;
       case 'X': cmd_quad_io_read(argc, argv);     break;
       case '2': cmd_dual_read(argc, argv);        break;
       case '3': cmd_dual_io_read(argc, argv);     break;
@@ -1861,7 +2072,7 @@ static void dispatch(char *line)
       case 'j': cmd_raw_read(argc, argv);         break;
       case 'J': cmd_raw_write(argc, argv);        break;
       case 'e': cmd_op_only(argc, argv);          break;
-      case 'W': cmd_wrsr(argc, argv);             break;
+      case 'v': cmd_wrsr(argc, argv);             break;
       case 'w': cmd_pp(argc, argv);               break;
       case 'Q': cmd_qpp(argc, argv);              break;
       case 'S': cmd_erase(0x20U, 4U, argc, argv); break;
@@ -1876,6 +2087,7 @@ static void dispatch(char *line)
       case 'g': cmd_gpio(argc, argv);             break;
       case 'G': cmd_gpio_read();                  break;
       case 'k': cmd_gpio_bitbang_read(argc, argv); break;
+      case 'K': cmd_gpio_6b_read(argc, argv);     break;
       case 't': cmd_toggle(argc, argv);           break;
       case 'x': cmd_abort();                      break;
       case 'h': cmd_help();                       break;

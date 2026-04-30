@@ -35,6 +35,8 @@ static int initialised;
 static uint32_t cur_prescaler;
 static uint32_t cur_fsize;
 static uint32_t cur_csht;
+static uint32_t cur_dlyb_sel;
+static uint32_t cur_dlyb_unit;
 static uint32_t mdma_active_dst;
 static uint32_t mdma_active_len;
 static bool mdma_active;
@@ -42,6 +44,17 @@ static bool mdma_active;
 uint32_t qspi_get_prescaler(void) { return cur_prescaler; }
 uint32_t qspi_get_fsize(void)     { return cur_fsize; }
 uint32_t qspi_get_csht(void)      { return cur_csht; }
+
+HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit);
+
+HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit)
+{
+   if (sel > 15U || unit > 127U)
+      return HAL_ERROR;
+   cur_dlyb_sel  = sel;
+   cur_dlyb_unit = sel ? unit : 0U;
+   return HAL_OK;
+}
 
 static uint32_t lines_to_mode(qspi_lines_t l)
 {
@@ -79,6 +92,21 @@ static void setupgpio(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
    HAL_GPIO_Init(port, &g);
 }
 
+static void setup_dlyb(void)
+{
+   DLYB_QUADSPI->CR = 0U;
+   if (cur_dlyb_sel == 0U) {
+      DLYB_QUADSPI->CFGR = 0U;
+      return;
+   }
+
+   DLYB_QUADSPI->CR = DLYB_CR_DEN | DLYB_CR_SEN;
+   DLYB_QUADSPI->CFGR =
+      ((cur_dlyb_sel & 0x0FU) << DLYB_CFGR_SEL_Pos) |
+      ((cur_dlyb_unit & 0x7FU) << DLYB_CFGR_UNIT_Pos);
+   DLYB_QUADSPI->CR = DLYB_CR_DEN;
+}
+
 int qspi_busy(void)
 {
    return (QUADSPI->SR & QUADSPI_SR_BUSY) ? 1 : 0;
@@ -113,6 +141,7 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
    __HAL_RCC_QSPI_CLK_ENABLE();
    __HAL_RCC_QSPI_FORCE_RESET();
    __HAL_RCC_QSPI_RELEASE_RESET();
+   setup_dlyb();
 
    setupgpio(QSPI_CLK_PORT, QSPI_CLK_PIN, QSPI_CLK_AF);
    setupgpio(QSPI_NCS_PORT, QSPI_NCS_PIN, QSPI_NCS_AF);
@@ -128,7 +157,7 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
       cr |= QUADSPI_CR_SSHIFT;
    if (dual_flash)
       cr |= QUADSPI_CR_DFM;
-   cr |= (3U << QUADSPI_CR_FTHRES_Pos);
+   cr |= (15U << QUADSPI_CR_FTHRES_Pos);
    QUADSPI->CR = cr;
 
    QUADSPI->DCR = ((fsize_log2 & 0x1FU) << QUADSPI_DCR_FSIZE_Pos) |
@@ -192,6 +221,45 @@ static HAL_StatusTypeDef poll_flag(uint32_t mask, uint32_t deadline)
    }
 }
 
+static HAL_StatusTypeDef wait_read_data(uint32_t mask, uint32_t deadline)
+{
+   for (;;) {
+      const uint32_t sr = QUADSPI->SR;
+      if (sr & mask)
+         return HAL_OK;
+      if (sr & QUADSPI_SR_TEF) {
+         qspi_abort();
+         return HAL_ERROR;
+      }
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+}
+
+static HAL_StatusTypeDef read_dr_byte(uint32_t deadline, uint8_t *byte_out,
+                                      uint32_t *wait_iters)
+{
+   for (;;) {
+      const uint32_t sr = QUADSPI->SR;
+      if (sr & QUADSPI_SR_FLEVEL) {
+         *byte_out = *(volatile uint8_t *)&QUADSPI->DR;
+         return HAL_OK;
+      }
+      if (wait_iters != NULL)
+         (*wait_iters)++;
+      if (sr & QUADSPI_SR_TEF) {
+         qspi_abort();
+         return HAL_ERROR;
+      }
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+}
+
 HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
                             void *buf, uint32_t timeout_ms)
 {
@@ -217,14 +285,30 @@ HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
    if (cmd->addr_lines != QSPI_LINES_NONE)
       QUADSPI->AR = cmd->address;
 
+   uint8_t qdr_bytes[16];
+   uint32_t qdr_count = 0U;
    if (cmd->data_len) {
       volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
       volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
       uint8_t *bp                   = (uint8_t *)buf;
       uint32_t remaining            = cmd->data_len;
+      const bool qdr_diag =
+         (fmode == QSPI_FMODE_READ && cmd->data_lines == QSPI_LINES_4 &&
+          (cmd->instruction == 0x6BU || cmd->instruction == 0x6DU));
       if (fmode == QSPI_FMODE_READ && cmd->data_lines == QSPI_LINES_4) {
+         while (remaining) {
+            uint8_t b;
+            s = read_dr_byte(deadline, &b, NULL);
+            if (s != HAL_OK)
+               return s;
+            *bp++ = b;
+            if (qdr_diag && qdr_count < sizeof(qdr_bytes))
+               qdr_bytes[qdr_count++] = b;
+            remaining--;
+         }
+      } else if (fmode == QSPI_FMODE_READ) {
          while (remaining >= 4U) {
-            s = poll_flag(QUADSPI_SR_FTF, deadline);
+            s = wait_read_data(QUADSPI_SR_FTF | QUADSPI_SR_TCF, deadline);
             if (s != HAL_OK)
                return s;
             const uint32_t w = *dr32;
@@ -232,34 +316,34 @@ HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
             bp[1] = (uint8_t)(w >> 8);
             bp[2] = (uint8_t)(w >> 16);
             bp[3] = (uint8_t)(w >> 24);
+            if (qdr_diag) {
+               for (uint32_t i = 0; i < 4U && qdr_count < sizeof(qdr_bytes);
+                    i++)
+                  qdr_bytes[qdr_count++] = bp[i];
+            }
             bp += 4;
             remaining -= 4U;
          }
-      }
-      while (remaining) {
-         if (fmode == QSPI_FMODE_READ) {
-            while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
-               if (QUADSPI->SR & QUADSPI_SR_TEF) {
-                  qspi_abort();
-                  return HAL_ERROR;
-               }
-               if (QUADSPI->SR & QUADSPI_SR_TCF)
-                  break;
-               if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-                  qspi_abort();
-                  return HAL_TIMEOUT;
-               }
+         if (remaining) {
+            s = wait_read_data(QUADSPI_SR_TCF, deadline);
+            if (s != HAL_OK)
+               return s;
+            const uint32_t w = *dr32;
+            for (uint32_t i = 0; i < remaining; i++) {
+               bp[i] = (uint8_t)(w >> (8U * i));
+               if (qdr_diag && qdr_count < sizeof(qdr_bytes))
+                  qdr_bytes[qdr_count++] = bp[i];
             }
-         } else {
+            remaining = 0U;
+         }
+      } else {
+         while (remaining) {
             s = poll_flag(QUADSPI_SR_FTF, deadline);
             if (s != HAL_OK)
                return s;
-         }
-         if (fmode == QSPI_FMODE_WRITE)
             *dr8 = *bp++;
-         else
-            *bp++ = *dr8;
-         remaining--;
+            remaining--;
+         }
       }
    }
 
@@ -268,7 +352,18 @@ HAL_StatusTypeDef qspi_xfer(const qspi_cmd_t *cmd, qspi_fmode_t fmode,
       return s;
    QUADSPI->FCR = QUADSPI_FCR_CTCF;
 
-   return wait_not_busy(deadline);
+   s = wait_not_busy(deadline);
+   if (s != HAL_OK)
+      return s;
+
+   if (qdr_count) {
+      my_printf("qdr%02x", (unsigned)cmd->instruction);
+      for (uint32_t i = 0; i < qdr_count; i++)
+         my_printf(" %02x", (unsigned)qdr_bytes[i]);
+      my_printf("\r\n");
+   }
+
+   return HAL_OK;
 }
 
 HAL_StatusTypeDef qspi_mm_enable(const qspi_cmd_t *cmd)
@@ -381,8 +476,6 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    if (!raw)
       QUADSPI->AR = 0U;
 
-   volatile uint8_t  *const dr8  = (volatile uint8_t  *)&QUADSPI->DR;
-   volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
    uint32_t crc                  = 0xFFFFFFFFUL;
    uint32_t first_err            = 0xFFFFFFFFUL;
    uint8_t  got16[16]            = {0};
@@ -392,8 +485,19 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
    uint32_t i = 0;
 
    if (data_lines == QSPI_LINES_4) {
+      while (i < len) {
+         uint8_t b;
+         HAL_StatusTypeDef s = read_dr_byte(deadline, &b, &wait_iters);
+         if (s != HAL_OK)
+            return s;
+         bench_consume_byte(b, i, &crc, &first_err, got16);
+         i++;
+      }
+   } else {
+      volatile uint32_t *const dr32 = (volatile uint32_t *)&QUADSPI->DR;
+
       while (i + 4U <= len) {
-         while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
+         while (!(QUADSPI->SR & (QUADSPI_SR_FTF | QUADSPI_SR_TCF))) {
             wait_iters++;
             if (QUADSPI->SR & QUADSPI_SR_TEF) {
                qspi_abort();
@@ -411,25 +515,24 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
             i++;
          }
       }
-   }
 
-   /* Keep byte-wide DR draining for 1-lane, and for any non-word tail. */
-   while (i < len) {
-      while (!(QUADSPI->SR & QUADSPI_SR_FTF)) {
-         if (QUADSPI->SR & QUADSPI_SR_TCF) break;  /* last bytes */
-         wait_iters++;
-         if (QUADSPI->SR & QUADSPI_SR_TEF) {
-            qspi_abort();
-            return HAL_ERROR;
+      if (i < len) {
+         while (!(QUADSPI->SR & QUADSPI_SR_TCF)) {
+            wait_iters++;
+            if (QUADSPI->SR & QUADSPI_SR_TEF) {
+               qspi_abort();
+               return HAL_ERROR;
+            }
+            if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+               qspi_abort();
+               return HAL_TIMEOUT;
+            }
          }
-         if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-            qspi_abort();
-            return HAL_TIMEOUT;
-         }
+         const uint32_t w = *dr32;
+         for (uint32_t j = 0; i < len; j++, i++)
+            bench_consume_byte((uint8_t)(w >> (8U * j)), i, &crc,
+                               &first_err, got16);
       }
-      const uint8_t b = *dr8;
-      bench_consume_byte(b, i, &crc, &first_err, got16);
-      i++;
    }
 
    while (!(QUADSPI->SR & QUADSPI_SR_TCF)) {
