@@ -57,7 +57,7 @@ int main(void)
    while (1) {
       cli_poll();
 
-      if (!cli_busy()) {
+      if (cli_idle_jedec_enabled() && !cli_busy()) {
          (void)qspi_xfer(&id_cmd, QSPI_FMODE_READ, id, 100U);
          iters++;
          const uint32_t t = HAL_GetTick();

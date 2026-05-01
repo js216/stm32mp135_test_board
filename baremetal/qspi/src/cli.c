@@ -43,6 +43,7 @@ extern HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit);
 static char linebuf[LINEMAX + 1];
 static int  linelen;
 static bool busy_flag;
+static bool idle_jedec = true;
 static bool auto_consume = true;
 static bool four_byte_mode;
 static uint32_t pend_confirm_C_until;
@@ -69,6 +70,7 @@ static volatile uint16_t rx_head;
 static volatile uint16_t rx_tail;
 
 bool cli_busy(void) { return busy_flag; }
+bool cli_idle_jedec_enabled(void) { return idle_jedec; }
 
 static void rx_drain_hw(void)
 {
@@ -610,6 +612,26 @@ static void stream_find_first_error(const uint32_t *slot_base,
    }
 }
 
+static void stream_print_first16(const uint32_t *slot_base,
+                                 const bool *slot_valid)
+{
+   int first = 0;
+   if (slot_valid[1] &&
+       (!slot_valid[0] || slot_base[1] < slot_base[0]))
+      first = 1;
+   if (!slot_valid[first])
+      return;
+   volatile uint8_t *const p =
+      (volatile uint8_t *)(DEF_DDR_BASE +
+                           ((uint32_t)first * STREAM_CHUNK_BYTES));
+   my_printf("stream_got16 base=%lu bytes="
+             "%02x %02x %02x %02x %02x %02x %02x %02x "
+             "%02x %02x %02x %02x %02x %02x %02x %02x\r\n",
+             (unsigned long)slot_base[first],
+             p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+             p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+}
+
 static uint32_t xor_words(const volatile uint32_t *p, uint32_t words)
 {
    uint32_t x = 0U;
@@ -673,6 +695,7 @@ static void cmd_help(void)
       " y [iters=1000] xor timing over 128 KiB DDR\r\n"
       " m <n> [q=0/1] [raw=0/1]  MDMA streaming read into DDR\r\n"
       " a 0|1          auto-consume completed DMA buffers off/on\r\n"
+      " N 0|1          idle JEDEC loop off/on\r\n"
       " A <n> [q=0/1] [raw=1] DDR ping-pong MDMA\r\n"
       " j <n> [q=0/1] raw data-only read (no opcode/addr)\r\n"
       " J <b0> ...    raw data-only write (no opcode/addr)\r\n"
@@ -1415,9 +1438,11 @@ static void cmd_auto_stream(int argc, char **argv)
          first_err = 0xFFFFFFFFUL;
       } else {
          first_err = 0xFFFFFFFEUL;
-         if (!direct_crc)
+         if (!direct_crc) {
             stream_find_first_error(slot_base, slot_len, slot_valid,
                                     &first_err);
+            stream_print_first16(slot_base, slot_valid);
+         }
       }
    }
    const long firsterr_signed =
@@ -1452,6 +1477,17 @@ static void cmd_auto_consume(int argc, char **argv)
    uint32_t on = arg_u32(argv[0], auto_consume ? 1U : 0U);
    auto_consume = on ? true : false;
    my_printf("auto=%s\r\n", auto_consume ? "on" : "off");
+}
+
+static void cmd_idle_jedec(int argc, char **argv)
+{
+   if (argc < 1) {
+      my_printf("idle=%s\r\n", idle_jedec ? "on" : "off");
+      return;
+   }
+   uint32_t on = arg_u32(argv[0], idle_jedec ? 1U : 0U);
+   idle_jedec = on ? true : false;
+   my_printf("idle=%s\r\n", idle_jedec ? "on" : "off");
 }
 
 /* Raw data-only read: IMODE=ADMODE=ABMODE=0, just DMODE on the wire.
@@ -2068,6 +2104,7 @@ static void dispatch(char *line)
       case 'y': cmd_xor_time(argc, argv);         break;
       case 'm': cmd_mdma(argc, argv);             break;
       case 'a': cmd_auto_consume(argc, argv);     break;
+      case 'N': cmd_idle_jedec(argc, argv);       break;
       case 'A': cmd_auto_stream(argc, argv);      break;
       case 'j': cmd_raw_read(argc, argv);         break;
       case 'J': cmd_raw_write(argc, argv);        break;
