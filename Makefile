@@ -10,7 +10,11 @@ boot:
 	$(MAKE) -C bootloader -j$(shell nproc) #CFLAGS_EXTRA="-DEVB"
 
 patch:
-	git -C linux apply ../config/patch.linux
+	@if git -C linux apply -R --check ../config/patch.linux 2>/dev/null; then \
+		echo "patch.linux already applied"; \
+	else \
+		git -C linux apply ../config/patch.linux; \
+	fi
 
 kernel:
 	cp config/linux.conf linux/.config
