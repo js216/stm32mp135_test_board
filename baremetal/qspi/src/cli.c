@@ -1042,6 +1042,242 @@ static void cmd_mm(int argc, char **argv)
    hexdump(addr, io_buf, len);
 }
 
+/* Memory-mapped quad-read benchmark.  Programs FMODE=11 with the
+ * 0x6B Quad Output Read recipe (3-byte addr, 9 dummy cycles, quad
+ * data lines) so the QUADSPI peripheral autonomously refills its
+ * prefetch buffer; the CPU (or MDMA) then copies LEN bytes from the
+ * QSPI memory-mapped window straight into DDR (DEF_DDR_BASE, no
+ * io_buf staging) and reports wall-rate.  This path bypasses MDMA's
+ * per-word AXI handshake (the indirect-read bottleneck identified in
+ * agent4/TODO.md) so it should comfortably exceed the 337 Mbps
+ * indirect-read ceiling.
+ *
+ * argv[0] = LEN (default 1 MiB, capped at 16 MiB).
+ * argv[1] = VARIANT (default 0):
+ *   0: byte-by-byte CPU loop  (regression baseline, ~36 Mbps)
+ *   1: 32-bit word CPU loop
+ *   2: memcpy() with non-volatile aliases (LDM/STM bursts)
+ *   3: MDMA mem-to-mem from QSPI_MM_BASE (software-request)
+ */
+static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
+                                uint32_t *cesr_out)
+{
+   *cisr_out = 0U;
+   *cesr_out = 0U;
+   if (len == 0U)
+      return 0U;
+   /* Block-repeat path requires 64 KiB-multiple lengths for >0x1FFFF. */
+   if (len > 0x1FFFFU && (len & 0xFFFFU)) {
+      my_printf("ERR mmap mdma: len must be 64 KiB-multiple if >128 KB\r\n");
+      return 0U;
+   }
+
+   __HAL_RCC_MDMA_CLK_ENABLE();
+
+   MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
+   ch->CCR = 0U;
+   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
+               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+
+   /* Clean+invalidate destination cache range so:
+    *  (a) any dirty CPU-side cache lines won't get written back over
+    *      MDMA-deposited data, and
+    *  (b) subsequent CPU reads see fresh DDR contents. */
+   const uint32_t dst_addr = DEF_DDR_BASE;
+   const uint32_t line_sz = 32U;
+   for (uint32_t a = dst_addr & ~(line_sz - 1U);
+        a < dst_addr + len; a += line_sz)
+      L1C_CleanInvalidateDCacheMVA((void *)a);
+   __asm volatile("dsb sy" ::: "memory");
+
+   /* CTCR for mem-to-mem from QSPI_MM_BASE:
+    *   SINC=2 (source increments), DINC=2 (dest increments)
+    *   SSIZE=2 (32-bit reads), DSIZE=2 (32-bit writes)
+    *   SINCOS=2, DINCOS=2 (advance by 32-bit words)
+    *   SBURST=4 (16-beat read burst), DBURST=4 (16-beat write burst)
+    *   TLEN=64-1 (64 B per buffer transfer, == 16 beats of 32 b)
+    *   TRGM picks per-request granularity (see below) so a single
+    *      software trigger drains the whole block / repeated block
+    *      rather than only one 64 B buffer.
+    *   SWRM=1 (software request mode)
+    *   BWM=1 (bufferable writes -- DDR is normal cacheable)
+    */
+   const uint32_t tlen = 64U;
+   uint32_t trgm;
+   if (len <= 64U)
+      trgm = 0U; /* one buffer per request */
+   else if (len <= 65536U)
+      trgm = 1U; /* one block (BNDT bytes) per request */
+   else
+      trgm = 2U; /* one repeated block per request -- drains entire xfer */
+   ch->CTCR =
+      (2U << MDMA_CTCR_SINC_Pos)   |
+      (2U << MDMA_CTCR_DINC_Pos)   |
+      (2U << MDMA_CTCR_SSIZE_Pos)  |
+      (2U << MDMA_CTCR_DSIZE_Pos)  |
+      (2U << MDMA_CTCR_SINCOS_Pos) |
+      (2U << MDMA_CTCR_DINCOS_Pos) |
+      (4U << MDMA_CTCR_SBURST_Pos) |
+      (4U << MDMA_CTCR_DBURST_Pos) |
+      ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
+      (trgm << MDMA_CTCR_TRGM_Pos) |
+      MDMA_CTCR_SWRM |
+      MDMA_CTCR_BWM;
+
+   if (len > 0x1FFFFU) {
+      const uint32_t blocks = len >> 16; /* len / 65536 */
+      /* BRSUM/BRDUM = 1 means the block-start address INCREMENTS
+       * across blocks (continues forward); BRSUM/BRDUM = 0 would
+       * leave the start fixed (not what we want for contiguous src
+       * and contiguous dst). */
+      ch->CBNDTR = (65536U & MDMA_CBNDTR_BNDT_Msk) |
+                   ((blocks - 1U) << MDMA_CBNDTR_BRC_Pos) |
+                   MDMA_CBNDTR_BRDUM | MDMA_CBNDTR_BRSUM;
+   } else {
+      ch->CBNDTR = len & MDMA_CBNDTR_BNDT_Msk;
+   }
+   ch->CBRUR = 0U;
+   ch->CSAR  = QSPI_MM_BASE + 0U;
+   ch->CDAR  = dst_addr;
+   ch->CTBR  = 0U;
+   ch->CMAR  = 0U;
+   ch->CMDR  = 0U;
+
+   __asm volatile("dsb sy" ::: "memory");
+   ch->CCR = MDMA_CCR_EN;
+   __asm volatile("dsb sy" ::: "memory");
+   const uint32_t t0 = HAL_GetTick();
+   /* Kick: software request fires the first buffer; SWRM mode keeps
+    * re-arming until BNDT/BRC drain. */
+   ch->CCR = MDMA_CCR_EN | MDMA_CCR_SWRQ;
+
+   const uint32_t deadline = t0 + 60000U;
+   uint32_t cisr;
+   for (;;) {
+      cisr = ch->CISR;
+      if (cisr & MDMA_CISR_TEIF)
+         break;
+      if (cisr & MDMA_CISR_CTCIF)
+         break;
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         my_printf("ERR mmap mdma: timeout cisr=%08lx bndt=%08lx\r\n",
+                   (unsigned long)cisr, (unsigned long)ch->CBNDTR);
+         break;
+      }
+   }
+   const uint32_t dt = HAL_GetTick() - t0;
+   *cisr_out = cisr;
+   *cesr_out = ch->CESR;
+   ch->CCR = 0U;
+   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
+               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+   __asm volatile("dsb sy" ::: "memory");
+   return dt;
+}
+
+static void cmd_mmap_bench(int argc, char **argv)
+{
+   uint32_t len = arg_u32(argc > 0 ? argv[0] : NULL, 1048576U);
+   if (len == 0U) len = 1048576U;
+   if (len > 16U * 1024U * 1024U) len = 16U * 1024U * 1024U;
+   uint32_t variant = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
+   if (variant > 3U) variant = 0U;
+
+   /* Variants 1/2/3 require 4-byte alignment of len. */
+   if (variant != 0U && (len & 0x3U)) {
+      my_printf("ERR mmap: variant=%lu requires 4-byte aligned len\r\n",
+                (unsigned long)variant);
+      return;
+   }
+
+   const qspi_cmd_t c = {
+      .instruction   = 0x6BU,
+      .addr_bytes    = 3U,
+      .alt_bytes     = 0U, .alt_bytes_len = 0U,
+      .dummy_cycles  = 9U,
+      .inst_lines    = QSPI_LINES_1,
+      .addr_lines    = QSPI_LINES_1,
+      .alt_lines     = QSPI_LINES_1,
+      .data_lines    = QSPI_LINES_4,
+   };
+   if (qspi_mm_enable(&c) != HAL_OK) {
+      my_printf("ERR mmap\r\n");
+      return;
+   }
+
+   uint32_t dt = 0U;
+   uint32_t mdma_cisr = 0U;
+   uint32_t mdma_cesr = 0U;
+
+   switch (variant) {
+      case 0U: {
+         volatile uint8_t *src = (volatile uint8_t *)(QSPI_MM_BASE + 0U);
+         volatile uint8_t *dst = (volatile uint8_t *)DEF_DDR_BASE;
+         uint32_t t0 = HAL_GetTick();
+         for (uint32_t i = 0; i < len; i++)
+            dst[i] = src[i];
+         dt = HAL_GetTick() - t0;
+         break;
+      }
+      case 1U: {
+         volatile uint32_t *src = (volatile uint32_t *)(QSPI_MM_BASE + 0U);
+         volatile uint32_t *dst = (volatile uint32_t *)DEF_DDR_BASE;
+         const uint32_t nw = len >> 2;
+         uint32_t t0 = HAL_GetTick();
+         for (uint32_t i = 0; i < nw; i++)
+            dst[i] = src[i];
+         dt = HAL_GetTick() - t0;
+         break;
+      }
+      case 2U: {
+         /* Non-volatile aliases so gcc emits LDM/STM bursts.  The QSPI
+          * MM region is mapped non-cacheable so reads still go to the
+          * peripheral; gcc just treats them as ordinary memory and is
+          * free to coalesce. */
+         void *src = (void *)(QSPI_MM_BASE + 0U);
+         void *dst = (void *)DEF_DDR_BASE;
+         uint32_t t0 = HAL_GetTick();
+         memcpy(dst, src, len);
+         dt = HAL_GetTick() - t0;
+         break;
+      }
+      case 3U:
+      default: {
+         dt = mmap_bench_mdma(len, &mdma_cisr, &mdma_cesr);
+         break;
+      }
+   }
+
+   qspi_mm_disable();
+
+   uint32_t mbps_x100 = (dt == 0U)
+       ? 0U
+       : (uint32_t)(((uint64_t)len * 8ULL * 100ULL) /
+                    ((uint64_t)dt * 1000ULL));
+   if (variant == 3U) {
+      my_printf("mmap %lu B quad in %lu ms, %lu.%02lu Mbps, "
+                "presc=%lu, qspi_hz=%lu, variant=%lu, "
+                "cisr=%08lx, cesr=%08lx\r\n",
+                (unsigned long)len, (unsigned long)dt,
+                (unsigned long)(mbps_x100 / 100U),
+                (unsigned long)(mbps_x100 % 100U),
+                (unsigned long)qspi_get_prescaler(),
+                (unsigned long)qspi_kernel_hz(),
+                (unsigned long)variant,
+                (unsigned long)mdma_cisr,
+                (unsigned long)mdma_cesr);
+   } else {
+      my_printf("mmap %lu B quad in %lu ms, %lu.%02lu Mbps, "
+                "presc=%lu, qspi_hz=%lu, variant=%lu\r\n",
+                (unsigned long)len, (unsigned long)dt,
+                (unsigned long)(mbps_x100 / 100U),
+                (unsigned long)(mbps_x100 % 100U),
+                (unsigned long)qspi_get_prescaler(),
+                (unsigned long)qspi_kernel_hz(),
+                (unsigned long)variant);
+   }
+}
+
 static void cmd_bench(int argc, char **argv)
 {
    uint32_t len  = arg_u32(argc > 0 ? argv[0] : NULL, 256U);
@@ -2370,6 +2606,7 @@ static void dispatch(char *line)
       case '2': cmd_dual_read(argc, argv);        break;
       case '3': cmd_dual_io_read(argc, argv);     break;
       case 'M': cmd_mm(argc, argv);               break;
+      case 'H': cmd_mmap_bench(argc, argv);       break;
       case 'b': cmd_bench(argc, argv);            break;
       case 'o': cmd_poison(argc, argv);           break;
       case 'y': cmd_xor_time(argc, argv);         break;
