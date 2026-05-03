@@ -100,6 +100,15 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
                                  bool raw, uint32_t dst_addr,
                                  uint32_t timeout_ms, bool clean_before);
 
+/* Same as qspi_mdma_read but issues the QSPI command at `flash_addr`
+ * (loaded into QUADSPI->AR) instead of zero. Used for chunked-read
+ * stitching of large transfers from incrementing slave addresses. */
+HAL_StatusTypeDef qspi_mdma_read_addr(uint8_t opcode, qspi_lines_t data_lines,
+                                      uint8_t dummy_cycles, uint32_t len,
+                                      bool raw, uint32_t flash_addr,
+                                      uint32_t dst_addr,
+                                      uint32_t timeout_ms, bool clean_before);
+
 HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t dummy_cycles, uint32_t len,
                                   bool raw, uint32_t dst_addr,

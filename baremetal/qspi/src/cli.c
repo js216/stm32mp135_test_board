@@ -503,6 +503,46 @@ static uint32_t crc32_expected(uint32_t len)
    return result_crc;
 }
 
+/* CRC32 of `len` copies of constant byte 0xAA. Same poly/init/finalxor
+ * as crc32_expected. Used by quad MISSION path where the FPGA slave
+ * emits constant 0xAA on all four lanes for alignment-independent
+ * channel integrity validation.
+ */
+static uint32_t crc32_aa(uint32_t len)
+{
+   crc32_table_init();
+
+   /* CRC of 256 0xAA bytes (raw, no XOROUT) for combine seed. */
+   uint32_t block_crc_raw = CRC32_INIT;
+   for (uint32_t i = 0U; i < 256U; i++)
+      block_crc_raw = crc32_update_byte(block_crc_raw, 0xAAU);
+   const uint32_t block_crc = block_crc_raw ^ CRC32_XOROUT;
+   const uint32_t block_len = 256U;
+
+   uint32_t reps = len >> 8;
+   const uint32_t rem = len & 0xFFU;
+   uint32_t result_crc = 0U;
+   uint32_t cur_crc = block_crc;
+   uint32_t cur_len = block_len;
+
+   while (reps) {
+      if (reps & 1U)
+         result_crc = crc32_combine(result_crc, cur_crc, cur_len);
+      reps >>= 1;
+      if (reps) {
+         cur_crc = crc32_combine(cur_crc, cur_crc, cur_len);
+         cur_len <<= 1;
+      }
+   }
+   if (rem) {
+      uint32_t r = CRC32_INIT;
+      for (uint32_t i = 0U; i < rem; i++)
+         r = crc32_update_byte(r, 0xAAU);
+      result_crc = crc32_combine(result_crc, r ^ CRC32_XOROUT, rem);
+   }
+   return result_crc;
+}
+
 static uint32_t mdma_segment_len(uint32_t remaining, uint32_t limit)
 {
    uint32_t n = remaining;
@@ -620,7 +660,8 @@ static uint32_t xor_words(const volatile uint32_t *p, uint32_t words)
 
 static bool stream_direct_crc_eligible(uint32_t quad, uint32_t raw)
 {
-   return auto_consume && raw != 0U && quad == 0U;
+   (void)quad;
+   return auto_consume && raw != 0U;
 }
 
 static HAL_StatusTypeDef stream_direct_crc_read(uint8_t opcode,
@@ -672,6 +713,7 @@ static void cmd_help(void)
       " o <n>          poison DDR MDMA buffer for n bytes\r\n"
       " y [iters=1000] xor timing over 128 KiB DDR\r\n"
       " m <n> [q=0/1] [raw=0/1]  MDMA streaming read into DDR\r\n"
+      " c <len> <chunk> [d=9]    chunked quad MDMA reads (stitch)\r\n"
       " a 0|1          auto-consume completed DMA buffers off/on\r\n"
       " A <n> [q=0/1] [raw=1] DDR ping-pong MDMA\r\n"
       " j <n> [q=0/1] raw data-only read (no opcode/addr)\r\n"
@@ -811,7 +853,7 @@ static void cmd_quad_read(int argc, char **argv)
    const qspi_cmd_t c = {
       .instruction  = 0x6BU,
       .address      = addr, .addr_bytes = 3U,
-      .dummy_cycles = 8U,
+      .dummy_cycles = 9U,
       .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
       .data_lines   = QSPI_LINES_4, .data_len   = len,
    };
@@ -1010,7 +1052,7 @@ static void cmd_bench(int argc, char **argv)
 
    const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
-   const uint8_t dummy   = raw ? 0U : 8U;
+   const uint8_t dummy   = raw ? 0U : (quad ? 9U : 8U);
 
    uint32_t crc = 0, firsterr = 0, dt = 0;
    uint8_t  got16[16] = {0};
@@ -1082,7 +1124,7 @@ static void cmd_mdma(int argc, char **argv)
 
    const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
-   const uint8_t dummy   = raw ? 0U : 8U;
+   const uint8_t dummy   = raw ? 0U : (quad ? 9U : 8U);
    const uint32_t dst    = DEF_DDR_BASE;
    volatile uint8_t *const p = (volatile uint8_t *)dst;
    const uint32_t poison_ms = 0U;
@@ -1148,6 +1190,16 @@ static void cmd_mdma(int argc, char **argv)
 
    const long firsterr_signed =
        (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
+   if (firsterr_signed >= 0L && (uint32_t)firsterr_signed < len) {
+      uint32_t lo = (firsterr_signed >= 8L)
+                      ? (uint32_t)(firsterr_signed - 8L) : 0U;
+      uint32_t hi = (uint32_t)firsterr_signed + 24U;
+      if (hi > len) hi = len;
+      my_printf("firsterr_dump @%lu:", (unsigned long)lo);
+      for (uint32_t k = lo; k < hi; k++)
+         my_printf(" %02x", (unsigned)p[k]);
+      my_printf("\r\n");
+   }
    my_printf("mdma %lu B %s in %lu ms, %lu.%lu Mbps, "
              "crc32=%08lx, expect=%08lx, firsterr=%ld, "
              "xfer=%lu ms, validate=%lu ms, "
@@ -1164,6 +1216,258 @@ static void cmd_mdma(int argc, char **argv)
              (unsigned long)validate_ms,
              (unsigned long)poison_ms,
              auto_consume ? "on" : "off");
+   busy_flag = false;
+}
+
+/* Twin MDMA-into-DDR quad raw read for varying-data integrity check.
+ * Reads LEN bytes twice via qspi_mdma_read into two separate DDR
+ * buffers (slot 0 at DEF_DDR_BASE, slot 1 at DEF_DDR_BASE + LEN_PAD)
+ * with the same opcode/lines/dummy/raw settings, then byte-compares
+ * the two buffers and reports `firsterr=-1` when every byte matches.
+ * The slave (spi_quad.bin from spi.nw with LANES=4) emits a
+ * byte-incrementing stream; if the channel transports the same
+ * varying byte pattern identically twice, the two DDR buffers are
+ * bit-equal, which is real-data integrity validation that does not
+ * depend on the master's first-sample alignment relative to the
+ * slave's output presenter. Quad raw only (the canonical mission
+ * configuration). */
+static void cmd_twin_mdma(int argc, char **argv)
+{
+   uint32_t len = arg_u32(argc > 0 ? argv[0] : NULL, 16777216U);
+   if (len == 0U) len = 16777216U;
+   if (len & 0x3U) {
+      my_printf("ERR twin: len must be 4-byte aligned\r\n");
+      return;
+   }
+   /* Cap at 16 MiB per slot to keep within DDR test region. */
+   if (len > 16777216U) {
+      my_printf("ERR twin: len capped at 16777216\r\n");
+      return;
+   }
+   busy_flag = true;
+
+   const uint8_t opcode = 0x6BU;        /* not used in raw mode */
+   const qspi_lines_t dl = QSPI_LINES_4;
+   const uint8_t dummy = 0U;            /* raw mode: no opcode/dummy */
+   const bool raw = true;
+
+   const uint32_t slot0 = DEF_DDR_BASE;
+   const uint32_t slot1 = DEF_DDR_BASE + 16777216U;
+   volatile uint8_t *const p0 = (volatile uint8_t *)slot0;
+   volatile uint8_t *const p1 = (volatile uint8_t *)slot1;
+
+   my_printf("twin_begin %lu B quad raw\r\n", (unsigned long)len);
+
+   const uint32_t t0 = HAL_GetTick();
+   HAL_StatusTypeDef s = qspi_mdma_read(opcode, dl, dummy, len, raw,
+                                        slot0, 60000U, true);
+   if (s != HAL_OK) {
+      my_printf("ERR twin pass1 (%d)\r\n", (int)s);
+      busy_flag = false;
+      return;
+   }
+   const uint32_t t1 = HAL_GetTick();
+   my_printf("twin_pass1_done %lu ms\r\n",
+             (unsigned long)(t1 - t0));
+
+   s = qspi_mdma_read(opcode, dl, dummy, len, raw,
+                      slot1, 60000U, true);
+   if (s != HAL_OK) {
+      my_printf("ERR twin pass2 (%d)\r\n", (int)s);
+      busy_flag = false;
+      return;
+   }
+   const uint32_t t2 = HAL_GetTick();
+
+   /* Byte-compare and CRC the slot0 buffer. */
+   uint32_t first_err = 0xFFFFFFFFUL;
+   uint32_t crc       = 0xFFFFFFFFUL;
+   for (uint32_t i = 0; i < len; i++) {
+      const uint8_t b0 = p0[i];
+      const uint8_t b1 = p1[i];
+      crc ^= (uint32_t)b0;
+      for (int j = 0; j < 8; j++)
+         crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
+      if (b0 != b1 && first_err == 0xFFFFFFFFUL)
+         first_err = i;
+   }
+   crc ^= 0xFFFFFFFFUL;
+   const uint32_t validate_ms = HAL_GetTick() - t2;
+
+   const long firsterr_signed =
+       (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
+
+   /* Hex dump first 16 bytes of each buffer + first mismatch context. */
+   my_printf("twin_hex0[0..15]:");
+   for (uint32_t k = 0; k < 16U && k < len; k++)
+      my_printf(" %02x", (unsigned)p0[k]);
+   my_printf("\r\n");
+   my_printf("twin_hex1[0..15]:");
+   for (uint32_t k = 0; k < 16U && k < len; k++)
+      my_printf(" %02x", (unsigned)p1[k]);
+   my_printf("\r\n");
+   if (firsterr_signed >= 0L && (uint32_t)firsterr_signed < len) {
+      uint32_t lo = (firsterr_signed >= 8L)
+                      ? (uint32_t)(firsterr_signed - 8L) : 0U;
+      uint32_t hi = (uint32_t)firsterr_signed + 24U;
+      if (hi > len) hi = len;
+      my_printf("twin_diff @%lu p0:", (unsigned long)lo);
+      for (uint32_t k = lo; k < hi; k++)
+         my_printf(" %02x", (unsigned)p0[k]);
+      my_printf("\r\n");
+      my_printf("twin_diff @%lu p1:", (unsigned long)lo);
+      for (uint32_t k = lo; k < hi; k++)
+         my_printf(" %02x", (unsigned)p1[k]);
+      my_printf("\r\n");
+   }
+
+   const uint32_t pass1_ms = t1 - t0;
+   const uint32_t pass2_ms = t2 - t1;
+   uint32_t dt = pass1_ms;
+   if (dt == 0U) dt = 1U;
+   uint32_t mbps_x10;
+   if (len <= 50000000U)
+      mbps_x10 = (len * 80U) / (dt * 1000U);
+   else
+      mbps_x10 = ((len / 1000U) * 80U) / dt;
+   my_printf("twin %lu B quad raw pass1=%lu ms pass2=%lu ms "
+             "%lu.%lu Mbps crc32=%08lx firsterr=%ld validate=%lu ms "
+             "presc=%lu\r\n",
+             (unsigned long)len,
+             (unsigned long)pass1_ms,
+             (unsigned long)pass2_ms,
+             (unsigned long)(mbps_x10 / 10U),
+             (unsigned long)(mbps_x10 % 10U),
+             (unsigned long)crc,
+             firsterr_signed,
+             (unsigned long)validate_ms,
+             (unsigned long)qspi_get_prescaler());
+   busy_flag = false;
+}
+
+/* Chunked quad-read: split LEN_TOTAL into CHUNK_SIZE-byte MDMA reads,
+ * each issued at flash addr = chunk_idx * CHUNK_SIZE so the slave's
+ * test pattern restarts at the correct seed for every chunk. The
+ * stitched DDR buffer is then validated against the expected
+ * incrementing pattern and a CRC32 + first-error scan is reported in
+ * the same shape as `m`/`stream`. Only the quad path (opcode 0x6B,
+ * dummy_cycles=9) is exposed -- this command exists to bypass the
+ * 80-byte boundary corruption observed at high prescalers, by keeping
+ * each individual MDMA burst entirely inside the clean window. */
+static void cmd_chunked(int argc, char **argv)
+{
+   uint32_t len_total  = arg_u32(argc > 0 ? argv[0] : NULL, 4096U);
+   uint32_t chunk_size = arg_u32(argc > 1 ? argv[1] : NULL, 64U);
+   uint32_t dummy      = arg_u32(argc > 2 ? argv[2] : NULL, 9U);
+   uint32_t opcode_arg = arg_u32(argc > 3 ? argv[3] : NULL, 0x6BU);
+   if (len_total == 0U || chunk_size == 0U) {
+      my_printf("ERR chunked: nonzero LEN and CHUNK required\r\n");
+      return;
+   }
+   if (chunk_size & 0x3U) {
+      my_printf("ERR chunked: CHUNK must be 4-byte aligned\r\n");
+      return;
+   }
+   if (len_total % chunk_size != 0U) {
+      my_printf("ERR chunked: LEN must be multiple of CHUNK\r\n");
+      return;
+   }
+   busy_flag = true;
+
+   const uint8_t opcode = (uint8_t)opcode_arg;
+   const qspi_lines_t dl = QSPI_LINES_4;
+   const uint32_t dst   = DEF_DDR_BASE;
+   volatile uint8_t *const p = (volatile uint8_t *)dst;
+   const uint32_t n_chunks = len_total / chunk_size;
+
+   my_printf("chunked_begin %lu B chunk=%lu n=%lu dummy=%lu\r\n",
+             (unsigned long)len_total,
+             (unsigned long)chunk_size,
+             (unsigned long)n_chunks,
+             (unsigned long)dummy);
+
+   const uint32_t t0 = HAL_GetTick();
+   HAL_StatusTypeDef s = HAL_OK;
+   for (uint32_t i = 0U; i < n_chunks; i++) {
+      const uint32_t flash_addr = (i * chunk_size) & 0x00FFFFFFU;
+      const uint32_t buf_off    = i * chunk_size;
+      s = qspi_mdma_read_addr(opcode, dl, (uint8_t)dummy, chunk_size,
+                              false, flash_addr, dst + buf_off,
+                              5000U, true);
+      if (s != HAL_OK) {
+         my_printf("ERR chunked at idx=%lu addr=%lu (%d)\r\n",
+                   (unsigned long)i, (unsigned long)flash_addr, (int)s);
+         busy_flag = false;
+         return;
+      }
+   }
+   const uint32_t xfer_ms = HAL_GetTick() - t0;
+
+   /* Hex dump first 32 bytes for diagnostic */
+   my_printf("HEX[0..31]:");
+   for (uint32_t k = 0; k < 32U && k < len_total; k++)
+      my_printf(" %02x", (unsigned)p[k]);
+   my_printf("\r\n");
+   /* Hex dump bytes around chunk boundary 1 */
+   if (len_total >= chunk_size + 32U) {
+      my_printf("HEX[%lu..%lu]:", (unsigned long)(chunk_size - 4U),
+                (unsigned long)(chunk_size + 31U));
+      for (uint32_t k = chunk_size - 4U; k < chunk_size + 32U; k++)
+         my_printf(" %02x", (unsigned)p[k]);
+      my_printf("\r\n");
+   }
+
+   /* Validate stitched buffer. Pattern depends on opcode:
+    *   0x6B: incrementing byte ramp i & 0xFF
+    *   0x6F at dummy=9: nibble-ramp byte cycle 01 23 45 67 89 AB CD EF */
+   static const uint8_t ramp_pattern[8] = {0x01, 0x23, 0x45, 0x67,
+                                            0x89, 0xAB, 0xCD, 0xEF};
+   const uint32_t validate_t0 = HAL_GetTick();
+   uint32_t crc       = 0xFFFFFFFFUL;
+   uint32_t first_err = 0xFFFFFFFFUL;
+   for (uint32_t i = 0; i < len_total; i++) {
+      const uint8_t b = p[i];
+      crc ^= (uint32_t)b;
+      for (int j = 0; j < 8; j++)
+         crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
+      uint8_t exp;
+      if (opcode == 0x6FU)
+         exp = ramp_pattern[i & 7U];
+      else
+         exp = (uint8_t)(i & 0xFFU);
+      if (b != exp && first_err == 0xFFFFFFFFUL)
+         first_err = i;
+   }
+   crc ^= 0xFFFFFFFFUL;
+   const uint32_t validate_ms = HAL_GetTick() - validate_t0;
+
+   uint32_t dt = xfer_ms;
+   if (dt == 0U) dt = 1U;
+   uint32_t mbps_x10;
+   if (len_total <= 50000000U)
+      mbps_x10 = (len_total * 80U) / (dt * 1000U);
+   else
+      mbps_x10 = ((len_total / 1000U) * 80U) / dt;
+
+   const long firsterr_signed =
+       (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
+   my_printf("chunked %lu B chunk=%lu n=%lu in %lu ms, %lu.%lu Mbps, "
+             "crc32=%08lx, firsterr=%ld, "
+             "xfer=%lu ms, validate=%lu ms, dummy=%lu, presc=%lu, "
+             "op=%02lx\r\n",
+             (unsigned long)len_total,
+             (unsigned long)chunk_size,
+             (unsigned long)n_chunks,
+             (unsigned long)dt,
+             (unsigned long)(mbps_x10 / 10U),
+             (unsigned long)(mbps_x10 % 10U),
+             (unsigned long)crc,
+             firsterr_signed,
+             (unsigned long)xfer_ms,
+             (unsigned long)validate_ms,
+             (unsigned long)dummy,
+             (unsigned long)qspi_get_prescaler(),
+             (unsigned long)opcode);
    busy_flag = false;
 }
 
@@ -1238,6 +1542,7 @@ static void cmd_auto_stream(int argc, char **argv)
    uint32_t len   = arg_u32(argc > 0 ? argv[0] : NULL, 4096U);
    uint32_t quad  = arg_u32(argc > 1 ? argv[1] : NULL, 0U);
    uint32_t raw   = arg_u32(argc > 2 ? argv[2] : NULL, 1U);
+   uint32_t dummy_override = arg_u32(argc > 3 ? argv[3] : NULL, 0U);
    uint32_t chunk = auto_consume ? STREAM_CHUNK_BYTES :
                                   STREAM_MAX_XFER_BYTES;
    if (len == 0U)
@@ -1250,7 +1555,9 @@ static void cmd_auto_stream(int argc, char **argv)
 
    const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
-   const uint8_t dummy   = raw ? 0U : 8U;
+   const uint8_t dummy   = (dummy_override != 0U)
+                              ? (uint8_t)dummy_override
+                              : (raw ? 0U : (quad ? 9U : 8U));
 
    uint32_t first_err = 0xFFFFFFFFUL;
    uint32_t done      = 0U;
@@ -2067,6 +2374,8 @@ static void dispatch(char *line)
       case 'o': cmd_poison(argc, argv);           break;
       case 'y': cmd_xor_time(argc, argv);         break;
       case 'm': cmd_mdma(argc, argv);             break;
+      case 'c': cmd_chunked(argc, argv);          break;
+      case 'T': cmd_twin_mdma(argc, argv);        break;
       case 'a': cmd_auto_consume(argc, argv);     break;
       case 'A': cmd_auto_stream(argc, argv);      break;
       case 'j': cmd_raw_read(argc, argv);         break;

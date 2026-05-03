@@ -157,7 +157,10 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
       cr |= QUADSPI_CR_SSHIFT;
    if (dual_flash)
       cr |= QUADSPI_CR_DFM;
-   cr |= (15U << QUADSPI_CR_FTHRES_Pos);
+#ifndef QSPI_FTHRES
+#define QSPI_FTHRES 15U
+#endif
+   cr |= ((QSPI_FTHRES) << QUADSPI_CR_FTHRES_Pos);
    QUADSPI->CR = cr;
 
    QUADSPI->DCR = ((fsize_log2 & 0x1FU) << QUADSPI_DCR_FSIZE_Pos) |
@@ -612,8 +615,15 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
 
    /* Number of bytes per buffer transfer. Choose 64 B = 16 beats of
     * 32-bit (matches AXI/AHB max burst length on this CPU bus).  TLEN
-    * field is "bytes-1". */
-   const uint32_t tlen = 64U;
+    * field is "bytes-1".  Override with -DMDMA_TLEN=<N> to probe the
+    * per-buffer-vs-per-byte overhead model. */
+#ifndef MDMA_TLEN
+#define MDMA_TLEN 64U
+#endif
+#ifndef MDMA_SBURST
+#define MDMA_SBURST 0U
+#endif
+   const uint32_t tlen = MDMA_TLEN;
    const uint32_t bndt = len; /* block size in bytes */
 
    /* CTCR:
@@ -636,7 +646,7 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
        (2U  << MDMA_CTCR_SSIZE_Pos)  |
        (2U  << MDMA_CTCR_DSIZE_Pos)  |
        (2U  << MDMA_CTCR_DINCOS_Pos) |
-       (0U  << MDMA_CTCR_SBURST_Pos) |
+       (MDMA_SBURST << MDMA_CTCR_SBURST_Pos) |
        (4U  << MDMA_CTCR_DBURST_Pos) |
        ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
        MDMA_CTCR_BWM;
@@ -811,51 +821,10 @@ HAL_StatusTypeDef qspi_mdma_finish_no_inval(uint32_t timeout_ms)
    MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
    const uint32_t deadline = HAL_GetTick() + timeout_ms;
 
-   /* Poll for MDMA CTC (channel transfer complete) AND QSPI TCF. */
-   for (;;) {
-      const uint32_t cisr = ch->CISR;
-      if (cisr & MDMA_CISR_TEIF) {
-         my_printf("MDMADBG TE cesr=%08lx\r\n",
-                   (unsigned long)ch->CESR);
-         ch->CCR = 0U;
-         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
-         qspi_abort();
-         mdma_active = false;
-         return HAL_ERROR;
-      }
-      if (cisr & MDMA_CISR_CTCIF)
-         break;
-      if (QUADSPI->SR & QUADSPI_SR_TEF) {
-         ch->CCR = 0U;
-         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
-         qspi_abort();
-         mdma_active = false;
-         return HAL_ERROR;
-      }
-      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-         my_printf("MDMADBG timeout cisr=%08lx sr=%08lx bndt=%08lx\r\n",
-                   (unsigned long)cisr, (unsigned long)QUADSPI->SR,
-                   (unsigned long)ch->CBNDTR);
-         ch->CCR = 0U;
-         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
-         qspi_abort();
-         mdma_active = false;
-         return HAL_TIMEOUT;
-      }
-   }
-
-   /* Wait for QSPI transfer-complete flag too. */
-   while (!(QUADSPI->SR & QUADSPI_SR_TCF)) {
-      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-         ch->CCR = 0U;
-         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
-         qspi_abort();
-         mdma_active = false;
-         return HAL_TIMEOUT;
-      }
-   }
-   QUADSPI->FCR = QUADSPI_FCR_CTCF;
-   while (QUADSPI->SR & QUADSPI_SR_BUSY) {
+   /* Wait for MDMA channel transfer complete. Once CTCIF fires, all data
+    * MDMA was programmed for is in DDR. We don't care about QSPI's TCF
+    * because we'll abort QSPI right after. */
+   while (!(ch->CISR & MDMA_CISR_CTCIF)) {
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
          ch->CCR = 0U;
          QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
@@ -865,12 +834,12 @@ HAL_StatusTypeDef qspi_mdma_finish_no_inval(uint32_t timeout_ms)
       }
    }
 
-   /* Tear down. */
-   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
-               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+   /* Tear down. Abort QSPI to stop any further clocking. */
    ch->CCR = 0U;
    QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
-
+   qspi_abort();
+   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
+               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
    mdma_active = false;
    return HAL_OK;
 }
@@ -901,6 +870,130 @@ HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
    HAL_StatusTypeDef s = qspi_mdma_start(opcode, data_lines, dummy_cycles,
                                          len, raw, dst_addr, timeout_ms,
                                          clean_before);
+   if (s != HAL_OK)
+      return s;
+   return qspi_mdma_finish(timeout_ms);
+}
+
+/* Variant of qspi_mdma_start that programs QUADSPI->AR with `flash_addr`
+ * so chunked-read stitching can issue each chunk at its own slave
+ * address. This duplicates qspi_mdma_start (instead of refactoring) so
+ * the working baseline path stays bit-identical. */
+static HAL_StatusTypeDef qspi_mdma_start_addr(uint8_t opcode,
+                                              qspi_lines_t data_lines,
+                                              uint8_t dummy_cycles,
+                                              uint32_t len, bool raw,
+                                              uint32_t flash_addr,
+                                              uint32_t dst_addr,
+                                              uint32_t timeout_ms,
+                                              bool clean_before)
+{
+   if (!initialised || len == 0U)
+      return HAL_ERROR;
+   if (dst_addr & 0x3U)
+      return HAL_ERROR;
+   if (mdma_active)
+      return HAL_BUSY;
+
+   __HAL_RCC_MDMA_CLK_ENABLE();
+
+   const uint32_t deadline = HAL_GetTick() + timeout_ms;
+
+   while (QUADSPI->SR & QUADSPI_SR_BUSY) {
+      if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         qspi_abort();
+         return HAL_TIMEOUT;
+      }
+   }
+   QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
+                  QUADSPI_FCR_CTEF;
+
+   MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
+   ch->CCR = 0U;
+   ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
+               MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+
+   const uint32_t line_sz = 32U;
+   if (clean_before) {
+      for (uint32_t a = dst_addr & ~(line_sz - 1U);
+           a < dst_addr + len; a += line_sz)
+         L1C_CleanInvalidateDCacheMVA((void *)a);
+      __asm volatile("dsb sy" ::: "memory");
+   }
+
+   const uint32_t tlen = (len < 64U) ? len : 64U;
+   const uint32_t bndt = len;
+
+   const uint32_t ctcr =
+       (0U  << MDMA_CTCR_SINC_Pos)   |
+       (2U  << MDMA_CTCR_DINC_Pos)   |
+       (2U  << MDMA_CTCR_SSIZE_Pos)  |
+       (2U  << MDMA_CTCR_DSIZE_Pos)  |
+       (2U  << MDMA_CTCR_DINCOS_Pos) |
+       (0U  << MDMA_CTCR_SBURST_Pos) |
+       (4U  << MDMA_CTCR_DBURST_Pos) |
+       ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
+       MDMA_CTCR_BWM;
+
+   if (len > 0x1FFFFU) {
+      if (len & 0xFFFFU)
+         return HAL_ERROR;
+      const uint32_t blocks = len >> 16;
+      if (blocks == 0U || blocks > 0xFFFU + 1U)
+         return HAL_ERROR;
+      ch->CBNDTR = (65536U & MDMA_CBNDTR_BNDT_Msk) |
+                   ((blocks - 1U) << MDMA_CBNDTR_BRC_Pos) |
+                   MDMA_CBNDTR_BRDUM;
+      ch->CBRUR = 0U;
+   } else {
+      ch->CBNDTR = bndt & MDMA_CBNDTR_BNDT_Msk;
+      ch->CBRUR  = 0U;
+   }
+
+   ch->CTCR = ctcr;
+   ch->CSAR = (uint32_t)&QUADSPI->DR;
+   ch->CDAR = dst_addr;
+   ch->CTBR = 0x1AU & MDMA_CTBR_TSEL_Msk;
+   ch->CMAR = 0U;
+   ch->CMDR = 0U;
+
+   QUADSPI->DLR = len - 1U;
+   QUADSPI->ABR = 0U;
+
+   uint32_t ccr = 0;
+   if (!raw) {
+      ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
+      ccr |= 1U << CCR_IMODE_Pos;
+      ccr |= 1U << CCR_ADMODE_Pos;
+      ccr |= (3U - 1U) << CCR_ADSIZE_Pos;
+   }
+   ccr |= lines_to_mode(data_lines) << CCR_DMODE_Pos;
+   ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
+   ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
+
+   QUADSPI->CR |= QUADSPI_CR_DMAEN;
+   ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL;
+
+   QUADSPI->CCR = ccr;
+   if (!raw)
+      QUADSPI->AR = flash_addr;
+
+   mdma_active_dst = dst_addr;
+   mdma_active_len = len;
+   mdma_active = true;
+   return HAL_OK;
+}
+
+HAL_StatusTypeDef qspi_mdma_read_addr(uint8_t opcode, qspi_lines_t data_lines,
+                                      uint8_t dummy_cycles, uint32_t len,
+                                      bool raw, uint32_t flash_addr,
+                                      uint32_t dst_addr,
+                                      uint32_t timeout_ms, bool clean_before)
+{
+   HAL_StatusTypeDef s = qspi_mdma_start_addr(opcode, data_lines,
+                                              dummy_cycles, len, raw,
+                                              flash_addr, dst_addr,
+                                              timeout_ms, clean_before);
    if (s != HAL_OK)
       return s;
    return qspi_mdma_finish(timeout_ms);

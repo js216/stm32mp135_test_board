@@ -116,11 +116,15 @@ void sysclk_init(void)
     * HAL programs PLLN as N-1; the hardware effective multiplier here
     * is 82, so PLL4P is 24/3 x 82 = 656 MHz.  ETH and SDMMC are not
     * used by this demo, so the prior PLL4 = 47/23.5 MHz settings are
-    * not load-bearing. */
+    * not load-bearing.  Override with -DPLL4_PLLN=<N> at build time
+    * for per-byte overhead clock-pacing experiments. */
+#ifndef PLL4_PLLN
+#define PLL4_PLLN 82
+#endif
    rcc_oscinitstructure.PLL4.PLLState  = RCC_PLL_ON;
    rcc_oscinitstructure.PLL4.PLLSource = RCC_PLL4SOURCE_HSE;
    rcc_oscinitstructure.PLL4.PLLM      = 3;
-   rcc_oscinitstructure.PLL4.PLLN      = 82;
+   rcc_oscinitstructure.PLL4.PLLN      = PLL4_PLLN;
    rcc_oscinitstructure.PLL4.PLLP      = 1;
    rcc_oscinitstructure.PLL4.PLLQ      = 1;
    rcc_oscinitstructure.PLL4.PLLR      = 1;
@@ -140,9 +144,15 @@ void sysclk_init(void)
    rcc_clkinitstructure.MPUInit.MPU_Clock     = RCC_MPUSOURCE_PLL1;
    rcc_clkinitstructure.MPUInit.MPU_Div       = RCC_MPU_DIV2;
    rcc_clkinitstructure.AXISSInit.AXI_Clock   = RCC_AXISSOURCE_PLL2;
-   rcc_clkinitstructure.AXISSInit.AXI_Div     = RCC_AXI_DIV1;
+#ifndef AXI_DIV
+#define AXI_DIV RCC_AXI_DIV1
+#endif
+   rcc_clkinitstructure.AXISSInit.AXI_Div     = AXI_DIV;
    rcc_clkinitstructure.MLAHBInit.MLAHB_Clock = RCC_MLAHBSSOURCE_PLL3;
-   rcc_clkinitstructure.MLAHBInit.MLAHB_Div   = RCC_MLAHB_DIV1;
+#ifndef MLAHB_DIV
+#define MLAHB_DIV RCC_MLAHB_DIV1
+#endif
+   rcc_clkinitstructure.MLAHBInit.MLAHB_Div   = MLAHB_DIV;
    rcc_clkinitstructure.APB1_Div              = RCC_APB1_DIV2;
    rcc_clkinitstructure.APB2_Div              = RCC_APB2_DIV2;
    rcc_clkinitstructure.APB3_Div              = RCC_APB3_DIV2;
