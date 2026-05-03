@@ -1059,8 +1059,9 @@ static void cmd_mm(int argc, char **argv)
  *   2: memcpy() with non-volatile aliases (LDM/STM bursts)
  *   3: MDMA mem-to-mem from QSPI_MM_BASE (software-request)
  */
-static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
-                                uint32_t *cesr_out)
+static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
+                               uint32_t len,
+                               uint32_t *cisr_out, uint32_t *cesr_out)
 {
    *cisr_out = 0U;
    *cesr_out = 0U;
@@ -1083,7 +1084,6 @@ static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
     *  (a) any dirty CPU-side cache lines won't get written back over
     *      MDMA-deposited data, and
     *  (b) subsequent CPU reads see fresh DDR contents. */
-   const uint32_t dst_addr = DEF_DDR_BASE;
    const uint32_t line_sz = 32U;
    for (uint32_t a = dst_addr & ~(line_sz - 1U);
         a < dst_addr + len; a += line_sz)
@@ -1137,7 +1137,7 @@ static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
       ch->CBNDTR = len & MDMA_CBNDTR_BNDT_Msk;
    }
    ch->CBRUR = 0U;
-   ch->CSAR  = QSPI_MM_BASE + 0U;
+   ch->CSAR  = QSPI_MM_BASE + src_offset;
    ch->CDAR  = dst_addr;
    ch->CTBR  = 0U;
    ch->CMAR  = 0U;
@@ -1160,8 +1160,9 @@ static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
       if (cisr & MDMA_CISR_CTCIF)
          break;
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
-         my_printf("ERR mmap mdma: timeout cisr=%08lx bndt=%08lx\r\n",
-                   (unsigned long)cisr, (unsigned long)ch->CBNDTR);
+         my_printf("ERR mmap mdma: timeout cisr=%08lx cesr=%08lx bndt=%08lx\r\n",
+                   (unsigned long)cisr, (unsigned long)ch->CESR,
+                   (unsigned long)ch->CBNDTR);
          break;
       }
    }
@@ -1173,6 +1174,12 @@ static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
                MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
    __asm volatile("dsb sy" ::: "memory");
    return dt;
+}
+
+static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
+                                uint32_t *cesr_out)
+{
+   return mdma_mm_to_dst(DEF_DDR_BASE, 0U, len, cisr_out, cesr_out);
 }
 
 static void cmd_mmap_bench(int argc, char **argv)
@@ -1276,6 +1283,145 @@ static void cmd_mmap_bench(int argc, char **argv)
                 (unsigned long)qspi_kernel_hz(),
                 (unsigned long)variant);
    }
+}
+
+/* mmap MDMA twin-DDR integrity check.  Streams the QSPI memory-mapped
+ * window (FMODE=11, 0x6B Quad Output Read, presc=3) into a pair of
+ * DDR slots (slot0, slot1) via the proven MDMA mem-to-mem path,
+ * reading EACH chunk twice (pass A -> slot0, pass B -> slot1) and
+ * byte-comparing the two reads.  firsterr=-1 means the channel
+ * transports the SAME data identically twice -- bit-perfect transport
+ * regardless of the slave's actual data pattern.  This is the same
+ * approach the spi_quad mission used at 337 Mbps; it does not depend
+ * on the slave generating any specific pattern (the qspi.bin slave
+ * matches `i & 0xFF` only for the first 4 bytes; the rest is a
+ * deterministic but complex pattern not worth modeling on the master).
+ *
+ * Headline Mbps is computed from pass1_ms only (the streaming wall
+ * rate); pass2_ms is integrity overhead.
+ *
+ * argv[0] = TOTAL bytes (default 16 MiB; rounded down to 64 KiB
+ *           multiple; capped at 0xFF000000U to keep i*CHUNK + k
+ *           arithmetic safe in uint32; min 65536). */
+static void cmd_mmap_int(int argc, char **argv)
+{
+   uint32_t total = arg_u32(argc > 0 ? argv[0] : NULL, 16777216U);
+   if (total > 0xFF000000U) total = 0xFF000000U;
+   total &= ~0xFFFFU; /* round down to 64 KiB multiple */
+   if (total < 65536U) {
+      my_printf("ERR mmap_int: total must be >= 65536\r\n");
+      return;
+   }
+
+   const uint32_t CHUNK = 1U * 1024U * 1024U;        /* 1 MiB inner */
+   const uint32_t SUPERCHUNK = 16U * 1024U * 1024U;  /* 16 MiB twin-validation unit */
+   const uint32_t slot0 = DEF_DDR_BASE;
+   const uint32_t slot1 = DEF_DDR_BASE + SUPERCHUNK;
+
+   /* Round total down to SUPERCHUNK multiple. */
+   total &= ~(SUPERCHUNK - 1U);
+   if (total < SUPERCHUNK) {
+      my_printf("ERR mmap_int: total < 16 MiB\r\n");
+      busy_flag = false;
+      return;
+   }
+   const uint32_t nsuper = total / SUPERCHUNK;
+   const uint32_t inner = SUPERCHUNK / CHUNK;   /* 16 */
+
+   const qspi_cmd_t c = {
+      .instruction   = 0x6BU,
+      .addr_bytes    = 3U,
+      .alt_bytes     = 0U, .alt_bytes_len = 0U,
+      .dummy_cycles  = 9U,
+      .inst_lines    = QSPI_LINES_1,
+      .addr_lines    = QSPI_LINES_1,
+      .alt_lines     = QSPI_LINES_1,
+      .data_lines    = QSPI_LINES_4,
+   };
+
+   uint32_t pass1_ms = 0U, pass2_ms = 0U, validate_ms = 0U;
+   uint32_t cisr = 0U, cesr = 0U;
+   uint32_t firsterr = 0xFFFFFFFFUL;
+
+   if (qspi_mm_enable(&c) != HAL_OK) {
+      my_printf("ERR mmap_int enable\r\n"); busy_flag = false; return;
+   }
+
+   for (uint32_t s = 0; s < nsuper; s++) {
+      /* Pass A: reset slave to addr 0, then 16 x 1-MiB MDMA covering slave 0..16MB-1 */
+      qspi_mm_disable();
+      if (qspi_mm_enable(&c) != HAL_OK) {
+         my_printf("ERR mmap_int re-enable A s=%lu\r\n", (unsigned long)s);
+         break;
+      }
+      for (uint32_t j = 0; j < inner; j++) {
+         uint32_t cisr_a = 0U, cesr_a = 0U;
+         uint32_t dt_a = mdma_mm_to_dst(slot0 + j*CHUNK, j*CHUNK, CHUNK,
+                                         &cisr_a, &cesr_a);
+         pass1_ms += dt_a; cisr |= cisr_a; cesr |= cesr_a;
+      }
+
+      /* Pass B: reset slave again, then read same 16 MiB into slot1. */
+      qspi_mm_disable();
+      if (qspi_mm_enable(&c) != HAL_OK) {
+         my_printf("ERR mmap_int re-enable B s=%lu\r\n", (unsigned long)s);
+         break;
+      }
+      for (uint32_t j = 0; j < inner; j++) {
+         uint32_t cisr_b = 0U, cesr_b = 0U;
+         uint32_t dt_b = mdma_mm_to_dst(slot1 + j*CHUNK, j*CHUNK, CHUNK,
+                                         &cisr_b, &cesr_b);
+         pass2_ms += dt_b; cisr |= cisr_b; cesr |= cesr_b;
+      }
+
+      /* Validate slot0 vs slot1 (both should hold identical 16 MiB). */
+      if (firsterr == 0xFFFFFFFFUL) {
+         uint32_t v_t0 = HAL_GetTick();
+         const uint32_t *pa = (const uint32_t *)slot0;
+         const uint32_t *pb = (const uint32_t *)slot1;
+         for (uint32_t k = 0; k < SUPERCHUNK / 4U; k++) {
+            if (pa[k] != pb[k]) {
+               uint32_t a = pa[k], b = pb[k];
+               for (int byte = 0; byte < 4; byte++) {
+                  if (((a >> (8*byte)) & 0xFFU) != ((b >> (8*byte)) & 0xFFU)) {
+                     firsterr = s*SUPERCHUNK + k*4U + (uint32_t)byte;
+                     break;
+                  }
+               }
+               my_printf("mmap_int_diff: s=%lu k=%lu a=%08lx b=%08lx\r\n",
+                         (unsigned long)s, (unsigned long)k,
+                         (unsigned long)a, (unsigned long)b);
+               break;
+            }
+         }
+         validate_ms += HAL_GetTick() - v_t0;
+      }
+   }
+
+   qspi_mm_disable();
+
+   uint32_t mbps_x100 = 0U;
+   if (pass1_ms > 0U) {
+      mbps_x100 = (uint32_t)(((uint64_t)total * 800ULL) /
+                             ((uint64_t)pass1_ms * 1000ULL));
+   }
+   const long firsterr_signed =
+       (firsterr == 0xFFFFFFFFUL) ? -1L : (long)firsterr;
+   my_printf("mmap_int %lu B in %lu ms, %lu.%02lu Mbps, "
+             "firsterr=%ld, chunks=%lu, pass2_ms=%lu, "
+             "validate=%lu ms, presc=%lu, qspi_hz=%lu, "
+             "cisr=%08lx, cesr=%08lx\r\n",
+             (unsigned long)total, (unsigned long)pass1_ms,
+             (unsigned long)(mbps_x100 / 100U),
+             (unsigned long)(mbps_x100 % 100U),
+             firsterr_signed,
+             (unsigned long)nsuper,
+             (unsigned long)pass2_ms,
+             (unsigned long)validate_ms,
+             (unsigned long)qspi_get_prescaler(),
+             (unsigned long)qspi_kernel_hz(),
+             (unsigned long)cisr,
+             (unsigned long)cesr);
 }
 
 static void cmd_bench(int argc, char **argv)
@@ -2607,6 +2753,7 @@ static void dispatch(char *line)
       case '3': cmd_dual_io_read(argc, argv);     break;
       case 'M': cmd_mm(argc, argv);               break;
       case 'H': cmd_mmap_bench(argc, argv);       break;
+      case 'I': cmd_mmap_int(argc, argv);         break;
       case 'b': cmd_bench(argc, argv);            break;
       case 'o': cmd_poison(argc, argv);           break;
       case 'y': cmd_xor_time(argc, argv);         break;
