@@ -1742,6 +1742,7 @@ static void cmd_chunked(int argc, char **argv)
    uint32_t chunk_size = arg_u32(argc > 1 ? argv[1] : NULL, 64U);
    uint32_t dummy      = arg_u32(argc > 2 ? argv[2] : NULL, 9U);
    uint32_t opcode_arg = arg_u32(argc > 3 ? argv[3] : NULL, 0x6BU);
+   uint32_t max_retries = arg_u32(argc > 4 ? argv[4] : NULL, 0U);
    if (len_total == 0U || chunk_size == 0U) {
       my_printf("ERR chunked: nonzero LEN and CHUNK required\r\n");
       return;
@@ -1762,26 +1763,67 @@ static void cmd_chunked(int argc, char **argv)
    volatile uint8_t *const p = (volatile uint8_t *)dst;
    const uint32_t n_chunks = len_total / chunk_size;
 
-   my_printf("chunked_begin %lu B chunk=%lu n=%lu dummy=%lu\r\n",
+   /* Pre-compute expected per-chunk CRC for retry path. Only valid
+    * for chunks aligned to slave's data wrap (256 bytes for opcode
+    * 0x6B). When max_retries==0, skip this. */
+   uint32_t exp_chunk_crc = 0U;
+   bool hw_crc_ok = false;
+   if (max_retries > 0U) {
+      exp_chunk_crc = crc32_expected(chunk_size);
+      hw_crc_ok = crc32_hw_begin();
+   }
+
+   my_printf("chunked_begin %lu B chunk=%lu n=%lu dummy=%lu retries=%lu "
+             "exp_crc=%08lx hw=%d\r\n",
              (unsigned long)len_total,
              (unsigned long)chunk_size,
              (unsigned long)n_chunks,
-             (unsigned long)dummy);
+             (unsigned long)dummy,
+             (unsigned long)max_retries,
+             (unsigned long)exp_chunk_crc,
+             hw_crc_ok ? 1 : 0);
 
+   uint32_t total_retries = 0U;
+   uint32_t failed_chunks = 0U;
    const uint32_t t0 = HAL_GetTick();
    HAL_StatusTypeDef s = HAL_OK;
    for (uint32_t i = 0U; i < n_chunks; i++) {
       const uint32_t flash_addr = (i * chunk_size) & 0x00FFFFFFU;
       const uint32_t buf_off    = i * chunk_size;
-      s = qspi_mdma_read_addr(opcode, dl, (uint8_t)dummy, chunk_size,
-                              false, flash_addr, dst + buf_off,
-                              5000U, true);
-      if (s != HAL_OK) {
-         my_printf("ERR chunked at idx=%lu addr=%lu (%d)\r\n",
-                   (unsigned long)i, (unsigned long)flash_addr, (int)s);
-         busy_flag = false;
-         return;
+      uint32_t retry;
+      bool chunk_ok = false;
+      for (retry = 0U; retry <= max_retries; retry++) {
+         s = qspi_mdma_read_addr(opcode, dl, (uint8_t)dummy, chunk_size,
+                                 false, flash_addr, dst + buf_off,
+                                 5000U, true);
+         if (s != HAL_OK) {
+            my_printf("ERR chunked at idx=%lu addr=%lu retry=%lu (%d)\r\n",
+                      (unsigned long)i, (unsigned long)flash_addr,
+                      (unsigned long)retry, (int)s);
+            busy_flag = false;
+            return;
+         }
+         if (max_retries == 0U || !hw_crc_ok) {
+            chunk_ok = true;
+            break;
+         }
+         /* HW CRC of this chunk via DMA. */
+         crc32_hw_reset();
+         s = crc32_mdma_start((volatile uint8_t *)(dst + buf_off),
+                              chunk_size);
+         if (s == HAL_OK)
+            s = crc32_mdma_wait(CRC_MDMA_TIMEOUT_MS);
+         if (s != HAL_OK)
+            break;
+         uint32_t got_crc = crc32_hw_final();
+         if (got_crc == exp_chunk_crc) {
+            chunk_ok = true;
+            if (retry > 0U) total_retries += retry;
+            break;
+         }
+         total_retries++;
       }
+      if (!chunk_ok) failed_chunks++;
    }
    const uint32_t xfer_ms = HAL_GetTick() - t0;
 
@@ -1836,7 +1878,7 @@ static void cmd_chunked(int argc, char **argv)
    my_printf("chunked %lu B chunk=%lu n=%lu in %lu ms, %lu.%lu Mbps, "
              "crc32=%08lx, firsterr=%ld, "
              "xfer=%lu ms, validate=%lu ms, dummy=%lu, presc=%lu, "
-             "op=%02lx\r\n",
+             "op=%02lx, retries=%lu, failed=%lu\r\n",
              (unsigned long)len_total,
              (unsigned long)chunk_size,
              (unsigned long)n_chunks,
@@ -1849,7 +1891,9 @@ static void cmd_chunked(int argc, char **argv)
              (unsigned long)validate_ms,
              (unsigned long)dummy,
              (unsigned long)qspi_get_prescaler(),
-             (unsigned long)opcode);
+             (unsigned long)opcode,
+             (unsigned long)total_retries,
+             (unsigned long)failed_chunks);
    busy_flag = false;
 }
 
