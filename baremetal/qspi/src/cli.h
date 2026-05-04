@@ -15,5 +15,6 @@
 void cli_init(void);
 void cli_poll(void);
 bool cli_busy(void);
+bool cli_idle_jedec_enabled(void);
 
 #endif

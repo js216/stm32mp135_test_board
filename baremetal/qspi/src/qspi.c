@@ -593,6 +593,11 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    }
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
+   uint32_t cr = QUADSPI->CR;
+   cr &= ~QUADSPI_CR_FTHRES_Msk;
+   cr |= ((data_lines == QSPI_LINES_4 ? 3U : 15U)
+          << QUADSPI_CR_FTHRES_Pos);
+   QUADSPI->CR = cr;
 
    MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
 
@@ -734,6 +739,12 @@ HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
    }
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
+
+   uint32_t cr = QUADSPI->CR;
+   cr &= ~QUADSPI_CR_FTHRES_Msk;
+   cr |= ((data_lines == QSPI_LINES_4 ? 3U : 15U)
+          << QUADSPI_CR_FTHRES_Pos);
+   QUADSPI->CR = cr;
 
    MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
    ch->CCR = 0U;

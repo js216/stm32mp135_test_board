@@ -13,5 +13,8 @@ fp-info-cache
 
 build
 test_out
+.scratch/
 __pycache__
 config/overlay/lib
+config/overlay/etc/dropbear/dropbear_*_host_key
+config/overlay/root/.ssh/authorized_keys
