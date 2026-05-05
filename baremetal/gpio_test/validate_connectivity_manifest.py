@@ -4,6 +4,7 @@ import re
 import sys
 from pathlib import Path
 
+import dry_run_connectivity
 import generate_connectivity_scripts
 
 
@@ -186,6 +187,11 @@ def validate_generated_scripts(manifest):
                 )
 
 
+def validate_dry_run(manifest):
+    commands = dry_run_connectivity.load_commands()
+    dry_run_connectivity.dry_run(manifest, commands)
+
+
 def main():
     expected = parse_assumed_connections(MISSION)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -233,11 +239,12 @@ def main():
 
     validate_first_pass_test_plan(manifest, jumpers_by_signal)
     validate_generated_scripts(manifest)
+    validate_dry_run(manifest)
 
     print(
         f"validated {len(jumpers)} gpio connectivity manifest rows "
         f"and {len(manifest['first_pass_test_plan'])} first-pass test vectors; "
-        "generated scripts are current"
+        "generated scripts are current; dry-run passed"
     )
     return 0
 
