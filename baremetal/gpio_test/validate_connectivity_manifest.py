@@ -11,6 +11,7 @@ MANIFEST = Path(__file__).with_name("connectivity_manifest.json")
 
 VALID_DIRECTIONS = {"MPU -> FPGA", "FPGA -> MPU", "Bidirectional"}
 VALID_ROLES = {"drive", "sample", "drive_sample"}
+VALID_CONTROLLERS = {"mpu", "fpga"}
 SIGNAL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -80,6 +81,90 @@ def expected_roles(direction):
     raise ValueError(f"bad direction: {direction}")
 
 
+def role_allows_drive(role):
+    return role in {"drive", "drive_sample"}
+
+
+def role_allows_sample(role):
+    return role in {"sample", "drive_sample"}
+
+
+def controller_role(row, controller):
+    return row[f"{controller}_role"]
+
+
+def allowed_driver_sampler_pairs(row):
+    pairs = set()
+    for driver in sorted(VALID_CONTROLLERS):
+        for sampler in sorted(VALID_CONTROLLERS - {driver}):
+            if role_allows_drive(controller_role(row, driver)) and role_allows_sample(
+                controller_role(row, sampler)
+            ):
+                pairs.add((driver, sampler))
+    return pairs
+
+
+def require_bit(value, field, signal):
+    if isinstance(value, bool) or value not in {0, 1}:
+        raise ValueError(f"{signal}: vector {field} must be 0 or 1, got {value!r}")
+    return value
+
+
+def validate_first_pass_test_plan(manifest, jumpers_by_signal):
+    test_plan = manifest.get("first_pass_test_plan")
+    if not isinstance(test_plan, list):
+        raise ValueError("manifest must contain a first_pass_test_plan list")
+
+    seen_vectors = {signal: set() for signal in jumpers_by_signal}
+    for index, vector in enumerate(test_plan):
+        if not isinstance(vector, dict):
+            raise ValueError(f"test vector {index}: must be an object")
+
+        signal = vector.get("signal")
+        if signal not in jumpers_by_signal:
+            raise ValueError(f"test vector {index}: unknown signal {signal!r}")
+
+        driver = vector.get("driver")
+        sampler = vector.get("sampler")
+        if driver not in VALID_CONTROLLERS or sampler not in VALID_CONTROLLERS:
+            raise ValueError(f"{signal}: invalid controller in vector {index}")
+        if driver == sampler:
+            raise ValueError(f"{signal}: vector {index} uses same driver and sampler")
+
+        allowed_pairs = allowed_driver_sampler_pairs(jumpers_by_signal[signal])
+        if (driver, sampler) not in allowed_pairs:
+            raise ValueError(
+                f"{signal}: vector {index} uses disallowed driver/sampler "
+                f"{driver}->{sampler}"
+            )
+
+        drive = require_bit(vector.get("drive"), "drive", signal)
+        expect = require_bit(vector.get("expect"), "expect", signal)
+        if drive != expect:
+            raise ValueError(f"{signal}: vector {index} drive/expect mismatch")
+
+        normalized = (driver, sampler, drive, expect)
+        if normalized in seen_vectors[signal]:
+            raise ValueError(f"{signal}: duplicate vector {normalized}")
+        seen_vectors[signal].add(normalized)
+
+    for signal, row in jumpers_by_signal.items():
+        required = {
+            (driver, sampler, value, value)
+            for driver, sampler in allowed_driver_sampler_pairs(row)
+            for value in (0, 1)
+        }
+        if seen_vectors[signal] != required:
+            missing = required - seen_vectors[signal]
+            extra = seen_vectors[signal] - required
+            details = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if extra:
+                details.append(f"extra {sorted(extra)}")
+            raise ValueError(f"{signal}: incomplete first-pass test vectors: {'; '.join(details)}")
+
+
 def main():
     expected = parse_assumed_connections(MISSION)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -103,14 +188,14 @@ def main():
                 print(f"  {item}", file=sys.stderr)
         return 1
 
-    signals = set()
+    jumpers_by_signal = {}
     for row in jumpers:
         signal = row.get("signal")
         if not isinstance(signal, str) or not SIGNAL_RE.fullmatch(signal):
             raise ValueError(f"bad stable signal name: {signal!r}")
-        if signal in signals:
+        if signal in jumpers_by_signal:
             raise ValueError(f"duplicate signal name: {signal}")
-        signals.add(signal)
+        jumpers_by_signal[signal] = row
 
         direction = row.get("direction")
         if direction not in VALID_DIRECTIONS:
@@ -125,7 +210,12 @@ def main():
         if row.get("mpu_role") not in VALID_ROLES or row.get("fpga_role") not in VALID_ROLES:
             raise ValueError(f"{signal}: invalid drive/sample role")
 
-    print(f"validated {len(jumpers)} gpio connectivity manifest rows")
+    validate_first_pass_test_plan(manifest, jumpers_by_signal)
+
+    print(
+        f"validated {len(jumpers)} gpio connectivity manifest rows "
+        f"and {len(manifest['first_pass_test_plan'])} first-pass test vectors"
+    )
     return 0
 
 

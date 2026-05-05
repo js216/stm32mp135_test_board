@@ -5,6 +5,218 @@
     "fpga": "gpio.nw",
     "mpu": "stm32mp135_test_board/baremetal/gpio_test"
   },
+  "first_pass_test_plan": [
+    {
+      "signal": "mpu_uart_tx_to_fpga_rx",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_uart_tx_to_fpga_rx",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "fpga_uart_tx_to_mpu_rx",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "fpga_uart_tx_to_mpu_rx",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_reset_output_to_fpga_reset_n",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_reset_output_to_fpga_reset_n",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_control_output_to_fpga_ctrl_start",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_control_output_to_fpga_ctrl_start",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "fpga_ready_status_to_mpu_status_input",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "fpga_ready_status_to_mpu_status_input",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_clk_to_fpga_sclk",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_clk_to_fpga_sclk",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_ncs_to_fpga_cs_n",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_ncs_to_fpga_cs_n",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io0_to_fpga_io0",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io0_to_fpga_io0",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io0_to_fpga_io0",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io0_to_fpga_io0",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io1_to_fpga_io1",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io1_to_fpga_io1",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io1_to_fpga_io1",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io1_to_fpga_io1",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io2_to_fpga_io2",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io2_to_fpga_io2",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io2_to_fpga_io2",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io2_to_fpga_io2",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io3_to_fpga_io3",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io3_to_fpga_io3",
+      "driver": "mpu",
+      "sampler": "fpga",
+      "drive": 1,
+      "expect": 1
+    },
+    {
+      "signal": "mpu_qspi_io3_to_fpga_io3",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 0,
+      "expect": 0
+    },
+    {
+      "signal": "mpu_qspi_io3_to_fpga_io3",
+      "driver": "fpga",
+      "sampler": "mpu",
+      "drive": 1,
+      "expect": 1
+    }
+  ],
   "jumpers": [
     {
       "signal": "mpu_uart_tx_to_fpga_rx",
