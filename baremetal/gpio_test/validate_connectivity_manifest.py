@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import dry_run_connectivity
+import generate_connectivity_fixtures
 import generate_connectivity_scripts
 
 
@@ -192,6 +193,13 @@ def validate_dry_run(manifest):
     dry_run_connectivity.dry_run(manifest, commands)
 
 
+def validate_generated_fixtures():
+    expected_outputs = generate_connectivity_fixtures.expected_outputs()
+    stale = generate_connectivity_fixtures.check_outputs(expected_outputs)
+    if stale:
+        raise ValueError("generated connectivity replay fixtures are stale: " + "; ".join(stale))
+
+
 def main():
     expected = parse_assumed_connections(MISSION)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -240,11 +248,12 @@ def main():
     validate_first_pass_test_plan(manifest, jumpers_by_signal)
     validate_generated_scripts(manifest)
     validate_dry_run(manifest)
+    validate_generated_fixtures()
 
     print(
         f"validated {len(jumpers)} gpio connectivity manifest rows "
         f"and {len(manifest['first_pass_test_plan'])} first-pass test vectors; "
-        "generated scripts are current; dry-run passed"
+        "generated scripts and replay fixtures are current; dry-run passed"
     )
     return 0
 
