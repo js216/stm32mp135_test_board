@@ -114,12 +114,21 @@ int qspi_busy(void)
 
 void qspi_abort(void)
 {
-   if (QUADSPI->SR & QUADSPI_SR_BUSY) {
-      QUADSPI->CR |= QUADSPI_CR_ABORT;
-      for (uint32_t i = 0; i < 100000U; i++) {
-         if (!(QUADSPI->CR & QUADSPI_CR_ABORT))
-            break;
-      }
+   /* Force ABORT unconditionally even when BUSY=0.  After an indirect
+    * read whose DLR is not a multiple of (FTHRES+1) the receive FIFO
+    * can hold up to FTHRES leftover bytes that MDMA never pulled (FTF
+    * never re-asserts below threshold).  BUSY clears with the transfer
+    * but those stale bytes survive into the next transaction, so the
+    * next read returns shifted data starting with the residual.  ABORT
+    * resets the FIFO per RM, so always run it. */
+   QUADSPI->CR |= QUADSPI_CR_ABORT;
+   for (uint32_t i = 0; i < 100000U; i++) {
+      if (!(QUADSPI->CR & QUADSPI_CR_ABORT))
+         break;
+   }
+   for (uint32_t i = 0; i < 100000U; i++) {
+      if (!(QUADSPI->SR & QUADSPI_SR_BUSY))
+         break;
    }
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
@@ -388,31 +397,9 @@ HAL_StatusTypeDef qspi_mm_enable(const qspi_cmd_t *cmd)
 
 void qspi_mm_disable(void)
 {
-   /* In FMODE=11 memory-mapped mode the controller is permanently armed
-    * to issue reads on AHB demand and is not necessarily showing BUSY at
-    * the instant we want to tear down (e.g. just after MDMA finished
-    * draining one block and the controller is between AHB requests).
-    * The conditional ABORT in qspi_abort() then no-ops, leaving the
-    * peripheral in MM mode with stale CCR/AR state -- a subsequent
-    * qspi_mm_enable() then writes a new CCR while the slave is in an
-    * unknown phase, and the slave's internal byte/address counters
-    * never reset because CS is never re-deasserted cleanly.
-    *
-    * Force the abort unconditionally so CS deasserts, the FIFO and
-    * address generator reset, and the slave's cs_async_rst observes a
-    * clean CS-high edge before we re-enable. */
-   QUADSPI->CR |= QUADSPI_CR_ABORT;
-   for (uint32_t i = 0U; i < 100000U; i++) {
-      if (!(QUADSPI->CR & QUADSPI_CR_ABORT))
-         break;
-   }
-   /* And wait for any in-flight transfer to fully drain. */
-   for (uint32_t i = 0U; i < 100000U; i++) {
-      if (!(QUADSPI->SR & QUADSPI_SR_BUSY))
-         break;
-   }
-   QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
-                  QUADSPI_FCR_CTEF;
+   /* qspi_abort() is unconditional and resets FIFO + deasserts CS,
+    * which is what mem-mapped tear-down also needs. */
+   qspi_abort();
 }
 
 HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
