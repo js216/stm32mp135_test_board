@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "source_table": "missions/fpga-spi.md#assumed-hardware-connections",
+  "controllers": {
+    "fpga": "gpio.nw",
+    "mpu": "stm32mp135_test_board/baremetal/gpio_test"
+  },
+  "jumpers": [
+    {
+      "signal": "mpu_uart_tx_to_fpga_rx",
+      "mpu_signal_pin": "MP135 UART TX, exact MPU pin TBD",
+      "fpga_signal_pin": "rx, iCEstick pin 9",
+      "direction": "MPU -> FPGA",
+      "voltage_domain": "Assumed 3.3 V LVCMOS, verify MPU UART bank",
+      "mpu_role": "drive",
+      "fpga_role": "sample"
+    },
+    {
+      "signal": "fpga_uart_tx_to_mpu_rx",
+      "mpu_signal_pin": "MP135 UART RX, exact MPU pin TBD",
+      "fpga_signal_pin": "tx, iCEstick pin 8",
+      "direction": "FPGA -> MPU",
+      "voltage_domain": "Assumed 3.3 V LVCMOS, verify MPU UART bank",
+      "mpu_role": "sample",
+      "fpga_role": "drive"
+    },
+    {
+      "signal": "mpu_reset_output_to_fpga_reset_n",
+      "mpu_signal_pin": "MP135 GPIO reset output, exact MPU pin TBD",
+      "fpga_signal_pin": "FPGA reset_n, exact FPGA pin TBD",
+      "direction": "MPU -> FPGA",
+      "voltage_domain": "Assumed 3.3 V LVCMOS control GPIO",
+      "mpu_role": "drive",
+      "fpga_role": "sample"
+    },
+    {
+      "signal": "mpu_control_output_to_fpga_ctrl_start",
+      "mpu_signal_pin": "MP135 GPIO control output, exact MPU pin TBD",
+      "fpga_signal_pin": "FPGA ctrl/start, exact FPGA pin TBD",
+      "direction": "MPU -> FPGA",
+      "voltage_domain": "Assumed 3.3 V LVCMOS control GPIO",
+      "mpu_role": "drive",
+      "fpga_role": "sample"
+    },
+    {
+      "signal": "fpga_ready_status_to_mpu_status_input",
+      "mpu_signal_pin": "MP135 GPIO status input, exact MPU pin TBD",
+      "fpga_signal_pin": "FPGA ready/status, exact FPGA pin TBD",
+      "direction": "FPGA -> MPU",
+      "voltage_domain": "Assumed 3.3 V LVCMOS control GPIO",
+      "mpu_role": "sample",
+      "fpga_role": "drive"
+    },
+    {
+      "signal": "mpu_qspi_clk_to_fpga_sclk",
+      "mpu_signal_pin": "MP135 QUADSPI CLK on CN8, exact CN8 pin TBD",
+      "fpga_signal_pin": "sclk, iCEstick pin 45",
+      "direction": "MPU -> FPGA",
+      "voltage_domain": "Assumed 3.3 V LVCMOS QSPI bank",
+      "mpu_role": "drive",
+      "fpga_role": "sample"
+    },
+    {
+      "signal": "mpu_qspi_ncs_to_fpga_cs_n",
+      "mpu_signal_pin": "MP135 QUADSPI NCS on CN8, exact CN8 pin TBD",
+      "fpga_signal_pin": "cs_n, iCEstick pin 56",
+      "direction": "MPU -> FPGA",
+      "voltage_domain": "Assumed 3.3 V LVCMOS QSPI bank",
+      "mpu_role": "drive",
+      "fpga_role": "sample"
+    },
+    {
+      "signal": "mpu_qspi_io0_to_fpga_io0",
+      "mpu_signal_pin": "MP135 QUADSPI IO0 on CN8, exact CN8 pin TBD",
+      "fpga_signal_pin": "io[0], iCEstick pin 47",
+      "direction": "Bidirectional",
+      "voltage_domain": "Assumed 3.3 V LVCMOS QSPI bank",
+      "mpu_role": "drive_sample",
+      "fpga_role": "drive_sample"
+    },
+    {
+      "signal": "mpu_qspi_io1_to_fpga_io1",
+      "mpu_signal_pin": "MP135 QUADSPI IO1 on CN8, exact CN8 pin TBD",
+      "fpga_signal_pin": "io[1], iCEstick pin 44",
+      "direction": "Bidirectional",
+      "voltage_domain": "Assumed 3.3 V LVCMOS QSPI bank",
+      "mpu_role": "drive_sample",
+      "fpga_role": "drive_sample"
+    },
+    {
+      "signal": "mpu_qspi_io2_to_fpga_io2",
+      "mpu_signal_pin": "MP135 QUADSPI IO2 on CN8, exact CN8 pin TBD",
+      "fpga_signal_pin": "io[2], iCEstick pin 60",
+      "direction": "Bidirectional",
+      "voltage_domain": "Assumed 3.3 V LVCMOS QSPI bank",
+      "mpu_role": "drive_sample",
+      "fpga_role": "drive_sample"
+    },
+    {
+      "signal": "mpu_qspi_io3_to_fpga_io3",
+      "mpu_signal_pin": "MP135 QUADSPI IO3 on CN8, exact CN8 pin TBD",
+      "fpga_signal_pin": "io[3], iCEstick pin 48",
+      "direction": "Bidirectional",
+      "voltage_domain": "Assumed 3.3 V LVCMOS QSPI bank",
+      "mpu_role": "drive_sample",
+      "fpga_role": "drive_sample"
+    }
+  ]
+}
