@@ -1100,6 +1100,21 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
 
    MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
    ch->CCR = 0U;
+   /* Wait for the channel to actually disable before clobbering setup
+    * registers.  Per RM0475 the CBNDTR/CTCR/CSAR/CDAR registers are only
+    * writable when CCR.EN=0 and the channel request flag (CRQA) is
+    * inactive; if we reprogram while CRQA still latches a pending
+    * software request from a previous transfer, the writes are silently
+    * dropped and the channel runs with stale block parameters (this
+    * presented as bndt=00fcffc0 instead of 00010000 on the failing
+    * second-superchunk MDMA).  Loop is bounded so a stuck channel can't
+    * wedge us. */
+   for (uint32_t i = 0U; i < 1000000U; i++) {
+      if (!(ch->CCR & MDMA_CCR_EN_Msk) &&
+          !(ch->CISR & MDMA_CISR_CRQA_Msk))
+         break;
+      __asm volatile("nop");
+   }
    ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
                MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
 
@@ -1195,6 +1210,19 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
    ch->CCR = 0U;
    ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
                MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
+   __asm volatile("dsb sy" ::: "memory");
+
+   /* Invalidate destination cache range AFTER MDMA writes:
+    * the Cortex-A7 can speculatively prefetch into D-cache lines that
+    * cover [dst_addr, dst_addr+len) at any time between the pre-MDMA
+    * cleanInvalidate and the MDMA writes actually landing in DDR.  If
+    * those speculatively-loaded lines stay in cache, a subsequent CPU
+    * read sees stale (pre-MDMA) DDR contents.  Twin validation then
+    * compares fresh slot1 against stale slot0 and reports a phantom
+    * diff.  Mirror what qspi_mdma_finish() does for the indirect path. */
+   for (uint32_t a = dst_addr & ~(line_sz - 1U);
+        a < dst_addr + len; a += line_sz)
+      L1C_InvalidateDCacheMVA((void *)a);
    __asm volatile("dsb sy" ::: "memory");
    return dt;
 }
