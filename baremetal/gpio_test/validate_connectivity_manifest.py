@@ -4,6 +4,8 @@ import re
 import sys
 from pathlib import Path
 
+import generate_connectivity_scripts
+
 
 ROOT = Path(__file__).resolve().parents[3]
 MISSION = ROOT / "missions" / "fpga-spi.md"
@@ -165,6 +167,25 @@ def validate_first_pass_test_plan(manifest, jumpers_by_signal):
             raise ValueError(f"{signal}: incomplete first-pass test vectors: {'; '.join(details)}")
 
 
+def validate_generated_scripts(manifest):
+    expected_outputs = generate_connectivity_scripts.expected_outputs(manifest)
+    stale = generate_connectivity_scripts.check_outputs(expected_outputs)
+    if stale:
+        raise ValueError("generated connectivity scripts are stale: " + "; ".join(stale))
+
+    for controller, path in generate_connectivity_scripts.OUTPUTS.items():
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            try:
+                command = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path}:{line_number}: invalid JSON: {exc}") from exc
+            if command.get("controller") != controller:
+                raise ValueError(
+                    f"{path}:{line_number}: command controller "
+                    f"{command.get('controller')!r} does not match script {controller!r}"
+                )
+
+
 def main():
     expected = parse_assumed_connections(MISSION)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -211,10 +232,12 @@ def main():
             raise ValueError(f"{signal}: invalid drive/sample role")
 
     validate_first_pass_test_plan(manifest, jumpers_by_signal)
+    validate_generated_scripts(manifest)
 
     print(
         f"validated {len(jumpers)} gpio connectivity manifest rows "
-        f"and {len(manifest['first_pass_test_plan'])} first-pass test vectors"
+        f"and {len(manifest['first_pass_test_plan'])} first-pass test vectors; "
+        "generated scripts are current"
     )
     return 0
 
