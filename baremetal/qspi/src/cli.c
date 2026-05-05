@@ -1132,8 +1132,18 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
     *   SINC=2 (source increments), DINC=2 (dest increments)
     *   SSIZE=2 (32-bit reads), DSIZE=2 (32-bit writes)
     *   SINCOS=2, DINCOS=2 (advance by 32-bit words)
-    *   SBURST=4 (16-beat read burst), DBURST=4 (16-beat write burst)
-    *   TLEN=64-1 (64 B per buffer transfer, == 16 beats of 32 b)
+    *   SBURST=0 (single 32-bit AHB read), DBURST=4 (16-beat DDR write)
+    *      The QSPI peripheral's AHB slave (FMODE=11) does NOT cleanly
+    *      service 16-beat AHB read bursts: with SBURST=4, the channel
+    *      transferred exactly one 64 B buffer (BNDT=0xFFC0) on the first
+    *      MDMA call after each qspi_mm_disable / qspi_mm_enable then
+    *      stalled with CRQA stuck at 1, and the readback on the very
+    *      first 16-beat burst showed a deterministic single-bit toggle
+    *      mid-burst (a8980848 vs a8180848 at word 1, byte 2).  Issuing
+    *      single 32-bit AHB beats matches the indirect (FMODE=01) MDMA
+    *      path that already passes the twin-DDR test at 300 Mbps.  DDR
+    *      writes still benefit from the 16-beat burst.
+    *   TLEN=64-1 (64 B per buffer transfer)
     *   TRGM picks per-request granularity (see below) so a single
     *      software trigger drains the whole block / repeated block
     *      rather than only one 64 B buffer.
@@ -1155,7 +1165,7 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
       (2U << MDMA_CTCR_DSIZE_Pos)  |
       (2U << MDMA_CTCR_SINCOS_Pos) |
       (2U << MDMA_CTCR_DINCOS_Pos) |
-      (4U << MDMA_CTCR_SBURST_Pos) |
+      (0U << MDMA_CTCR_SBURST_Pos) |
       (4U << MDMA_CTCR_DBURST_Pos) |
       ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
       (trgm << MDMA_CTCR_TRGM_Pos) |
