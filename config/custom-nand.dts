@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+
+#include "../../../../config/custom.dts"
+
+/ {
+	chosen {
+		bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs clk_ignore_unused";
+	};
+};
