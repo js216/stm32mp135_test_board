@@ -4,7 +4,7 @@
  * @file cmd.h
  * @brief Minimal line-edit shell for uart_echo.
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #ifndef CMD_H

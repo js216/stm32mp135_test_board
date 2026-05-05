@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# uart_boot.py --- TODO: description
+# Copyright (c) 2026 Jakob Kastelic
 import math
 import struct
 import pyvisa

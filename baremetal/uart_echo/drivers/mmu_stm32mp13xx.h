@@ -4,7 +4,7 @@
  * @file mmu_stm32mp13xx.h
  * @brief Driver and board low-level setup
  * @author Jakob Kastelic
- * @copyright 2025 Stanford Research Systems, Inc.
+ * @copyright 2025 Jakob Kastelic
  */
 
 #ifndef MMU_STM32MP13XX_H

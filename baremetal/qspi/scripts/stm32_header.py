@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-3-Clause
+# stm32_header.py --- TODO: description
+# Copyright (c) 2026 Jakob Kastelic
 # ******************************************************************************
 # @file      Stm32ImageAddHeader.py
 # @author    MCD Application Team

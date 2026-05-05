@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// setup.h --- TODO: description
+// Copyright (c) 2026 Jakob Kastelic
 #ifndef SETUP_H
 #define SETUP_H
 

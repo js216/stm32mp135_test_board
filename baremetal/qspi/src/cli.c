@@ -6,7 +6,7 @@
  *        UART4 console.  Polled RX (no IRQ).  Every command is a single
  *        printable letter followed by space-separated decimal/hex args.
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #include "cli.h"

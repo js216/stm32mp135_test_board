@@ -1,6 +1,6 @@
 BSD 3-Clause License
 
-Copyright 2025 Stanford Research Systems, Inc.
+Copyright 2025 Jakob Kastelic
 Copyright 2021 STMicroelectronics.
 
 All rights reserved.

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Makefile --- TODO: description
+# Copyright (c) 2026 Jakob Kastelic
 DTS = custom
 #DTS = stm32mp135f-dk
 

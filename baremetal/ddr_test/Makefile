@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Makefile --- TODO: description
+# Copyright (c) 2026 Jakob Kastelic
 BUILDDIR   = build
 BINARYNAME = $(BUILDDIR)/main
 OBJDIR     = $(BUILDDIR)/obj

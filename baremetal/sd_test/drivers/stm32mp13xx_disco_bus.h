@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #ifndef STM32MP13XX_DISCO_BUS_H
 #define STM32MP13XX_DISCO_BUS_H
 

@@ -4,7 +4,7 @@
  * @file board.h
  * @brief Board specific definitions: pins, devices, etc.
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #ifndef BOARD_H

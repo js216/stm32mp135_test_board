@@ -4,7 +4,7 @@
  * @file defaults.h
  * @brief Default values and DDR memory map
  * @author Jakob Kastelic
- * @copyright 2025 Stanford Research Systems, Inc.
+ * @copyright 2025 Jakob Kastelic
  */
 
 #ifndef DEFAULTS_H

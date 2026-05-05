@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
   * STM32MP135C DDR3 4Gb configuration
   * 1x DDR3L 4Gb, 16-bit, 533MHz.

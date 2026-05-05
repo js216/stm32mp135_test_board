@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Makefile --- TODO: description
+# Copyright (c) 2026 Jakob Kastelic
 # Default board: EVB (STM32MP135F-DK).  Override with `make BOARD_DEFINE=`
 # (empty) for the SR835-MB pinout.
 BOARD_DEFINE ?= -DEVB

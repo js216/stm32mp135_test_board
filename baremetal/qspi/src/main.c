@@ -8,7 +8,7 @@
  *        is busy) keep auto-issuing JEDEC reads so a passive monitor can
  *        confirm the bus stays alive.
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #include "cli.h"

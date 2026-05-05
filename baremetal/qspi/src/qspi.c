@@ -6,7 +6,7 @@
  *        write, memory-mapped read, and auto-poll status modes.  Polled
  *        only; HAL is used for GPIO pin-mux and clock enables.
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #include "qspi.h"

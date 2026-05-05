@@ -4,7 +4,7 @@
  * @file setup.h
  * @brief Driver and board low-level setup
  * @author Jakob Kastelic
- * @copyright 2025-2026 Stanford Research Systems, Inc.
+ * @copyright 2025-2026 Jakob Kastelic
  */
 
 #ifndef SETUP_H

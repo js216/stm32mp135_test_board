@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// stm32mp13xx_hal_conf.h --- TODO: description
+// Copyright (c) 2026 Jakob Kastelic
 #ifndef __STM32MP13xx_HAL_CONF_H
 #define __STM32MP13xx_HAL_CONF_H
 

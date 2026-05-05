@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Makefile --- TODO: description
+# Copyright (c) 2026 Jakob Kastelic
 print_regs: print_regs.c
 	arm-linux-gnueabihf-gcc -static $< -o $@
 

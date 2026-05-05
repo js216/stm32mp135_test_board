@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// setup.c --- TODO: description
+// Copyright (c) 2026 Jakob Kastelic
 #include "setup.h"
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_hal_etzpc.h"

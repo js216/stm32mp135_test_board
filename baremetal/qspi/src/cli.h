@@ -4,7 +4,7 @@
  * @file cli.h
  * @brief Single-character command shell over UART4 for QSPI bring-up.
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #ifndef CLI_H

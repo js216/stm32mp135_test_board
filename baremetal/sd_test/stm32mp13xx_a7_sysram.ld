@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// stm32mp13xx_a7_sysram.ld --- TODO: description
+// Copyright (c) 2026 Jakob Kastelic
 /*
 ******************************************************************************
 **

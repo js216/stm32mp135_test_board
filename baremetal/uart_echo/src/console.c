@@ -4,7 +4,7 @@
  * @file console.c
  * @brief UART receive buffer and interrupt flag
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #include "console.h"

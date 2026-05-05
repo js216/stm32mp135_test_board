@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// main.c --- TODO: description
+// Copyright (c) 2026 Jakob Kastelic
 #include <stdio.h>
 #include <ctype.h>
 #include "stm32mp13xx_hal.h"

@@ -4,7 +4,7 @@
  * @file stm32mp13xx_hal_conf.h
  * @brief HAL configuration
  * @author Jakob Kastelic
- * @copyright 2025 Stanford Research Systems, Inc.
+ * @copyright 2025 Jakob Kastelic
  */
 
 #ifndef __STM32MP13xx_HAL_CONF_H

@@ -4,7 +4,7 @@
  * @file console.h
  * @brief UART receive buffer and interrupt flag
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  *
  * This module sits below the command interpreter.  It owns the character
  * ring buffer and the Ctrl-C interrupt flag so that:

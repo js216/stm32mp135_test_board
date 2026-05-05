@@ -6,7 +6,7 @@
  *        typed characters, supports backspace, Ctrl-L, Ctrl-C.  Lines
  *        that don't match a command are rejected as Unknown command.
  * @author Jakob Kastelic
- * @copyright 2026 Stanford Research Systems, Inc.
+ * @copyright 2026 Jakob Kastelic
  */
 
 #include "cmd.h"

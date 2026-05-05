@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # verify.py --- Per-check dispatcher for baremetal/qspi automated test.
-# Copyright (c) 2026 Stanford Research Systems, Inc.
+# Copyright (c) 2026 Jakob Kastelic
 #
 # Each check parses the captured UART stream and asserts that the
 # QSPI slave actually behaved like a real NOR flash, not just that the

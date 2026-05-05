@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-3-Clause
+# make_datafile.py --- TODO: description
+# Copyright (c) 2026 Jakob Kastelic
 """
 Write raw bytes to a file where each byte is the numbers 0..255.
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # verify.py --- Per-check dispatcher for baremetal/uart_echo automated test.
-# Copyright (c) 2026 Stanford Research Systems, Inc.
+# Copyright (c) 2026 Jakob Kastelic
 
 import os
 import sys

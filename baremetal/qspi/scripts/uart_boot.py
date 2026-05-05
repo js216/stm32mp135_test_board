@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright (c) 2025 Stanford Research Systems, Inc.
+# Copyright (c) 2025 Jakob Kastelic
 
 import math
 import struct

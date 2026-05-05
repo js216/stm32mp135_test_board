@@ -4,7 +4,7 @@
  * @file irq.h
  * @brief Interrupt handlers.
  * @author Jakob Kastelic
- * @copyright 2025-2026 Stanford Research Systems, Inc.
+ * @copyright 2025-2026 Jakob Kastelic
  */
 
 #ifndef IRQ_H
