@@ -642,6 +642,27 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    const uint32_t tlen = MDMA_TLEN;
    const uint32_t bndt = len; /* block size in bytes */
 
+   /* Block-repeat path requires 64 KiB-multiple lengths for >0x1FFFF.
+    * Validate up front (matches the mem-mapped helper's check). */
+   if (len > 0x1FFFFU && (len & 0xFFFFU))
+      return HAL_ERROR;
+
+   /* TRGM picks per-request granularity:
+    *   small (<=TLEN)        -> 0 (one buffer per request)
+    *   medium (<=64 KiB)     -> 1 (one block per request)
+    *   large (block-repeat)  -> 2 (one repeated block == entire xfer)
+    * Combined with SWRM=1, a single software trigger kicks the whole
+    * transfer; subsequent beats are paced by AHB stall when the QSPI
+    * FIFO is empty rather than by per-buffer FTF round-trips.  This
+    * mirrors mdma_mm_to_dst() in cli.c. */
+   uint32_t trgm;
+   if (len <= tlen)
+      trgm = 0U;
+   else if (len <= 65536U)
+      trgm = 1U;
+   else
+      trgm = 2U;
+
    /* CTCR:
     *   SINC = 0  (source address fixed, QUADSPI->DR)
     *   DINC = 2  (destination increments)
@@ -652,8 +673,8 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
     *   DBURST = 4 (16-beat burst write to DDR)
     *   TLEN  = tlen-1
     *   PKE = 0, PAM = 0 (matched sizes)
-    *   TRGM = 0 (each request triggers ONE buffer transfer == TLEN bytes)
-    *   SWRM = 0 (HW request)
+    *   TRGM = trgm (see above)
+    *   SWRM = 1 (software request -- one SWRQ drains the whole block)
     *   BWM  = 1 (bufferable writes -- DDR is normal cacheable)
     */
    const uint32_t ctcr =
@@ -665,21 +686,22 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
        (MDMA_SBURST << MDMA_CTCR_SBURST_Pos) |
        (4U  << MDMA_CTCR_DBURST_Pos) |
        ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
+       (trgm << MDMA_CTCR_TRGM_Pos)  |
+       MDMA_CTCR_SWRM |
        MDMA_CTCR_BWM;
 
    /* CBNDTR.BNDT = block size in bytes (max 0x1FFFF = 128 KB - 1).
     * For multi-MB transfers, use block-repeat with 65536-byte blocks.
-    * Decimal tails are handled by the caller as separate <=128 KB chunks. */
+    * Source is fixed (QUADSPI->DR) so BRSUM=0; destination is contiguous
+    * across blocks so BRDUM=1.  CBRUR stays 0 (no per-block address
+    * offset). */
    if (len > 0x1FFFFU) {
-      if (len & 0xFFFFU)
-         return HAL_ERROR;
       const uint32_t blocks = len >> 16; /* len / 65536 */
       if (blocks == 0U || blocks > 0xFFFU + 1U)
          return HAL_ERROR;
       ch->CBNDTR = (65536U & MDMA_CBNDTR_BNDT_Msk) |
                    ((blocks - 1U) << MDMA_CBNDTR_BRC_Pos) |
                    MDMA_CBNDTR_BRDUM; /* dst increments across blocks */
-      /* No source/destination block address offset (contiguous). */
       ch->CBRUR = 0U;
    } else {
       ch->CBNDTR = bndt & MDMA_CBNDTR_BNDT_Msk;
@@ -689,7 +711,9 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    ch->CTCR = ctcr;
    ch->CSAR = (uint32_t)&QUADSPI->DR;
    ch->CDAR = dst_addr;
-   /* CTBR.TSEL = 0x1A (QUADSPI FIFO threshold).  SBUS/DBUS = 0 (AXI). */
+   /* CTBR.TSEL = 0x1A (QUADSPI FIFO threshold).  Unused in SWRM=1 mode
+    * (the channel is driven by software request, not the QSPI FTF
+    * line), but harmless to leave programmed.  SBUS/DBUS = 0 (AXI). */
    ch->CTBR = 0x1AU & MDMA_CTBR_TSEL_Msk;
    ch->CMAR = 0U;
    ch->CMDR = 0U;
@@ -710,15 +734,25 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
    ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
 
-   /* Assert DMAEN before kicking the read. */
+   /* DMAEN routes QSPI's FTF flag to the MDMA HW-request line; in SWRM=1
+    * mode the MDMA ignores HW requests, so DMAEN is irrelevant.  Leave
+    * it asserted -- the legacy per-buffer FTF arc is benign and keeps
+    * any future TSEL-driven path consistent. */
    QUADSPI->CR |= QUADSPI_CR_DMAEN;
 
-   /* Enable MDMA channel BEFORE the QSPI request can fire. */
+   /* Arm MDMA channel (no SWRQ yet) before kicking QSPI. */
+   __asm volatile("dsb sy" ::: "memory");
    ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL;
+   __asm volatile("dsb sy" ::: "memory");
 
    QUADSPI->CCR = ccr;
    if (!raw)
       QUADSPI->AR = 0U;
+
+   /* Issue the software request: the channel pulls beats back-to-back,
+    * AHB-stalled when the QSPI FIFO is empty rather than waiting for
+    * per-buffer FTF round-trips. */
+   ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL | MDMA_CCR_SWRQ;
 
    mdma_active_dst = dst_addr;
    mdma_active_len = len;
