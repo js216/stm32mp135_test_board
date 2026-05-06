@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# S49dropbear-keys --- install deterministic test SSH keys
+# Copyright (c) 2026 Jakob Kastelic
+
+set -eu
+
+HOST_KEY_SRC=/etc/dropbear/dropbear_ed25519_host_key.bin
+HOST_KEY_DST=/etc/dropbear/dropbear_ed25519_host_key
+AUTH_KEYS_SRC=/etc/dropbear/authorized_keys.root.txt
+AUTH_KEYS_DIR=/root/.ssh
+AUTH_KEYS_DST=${AUTH_KEYS_DIR}/authorized_keys
+
+case "$1" in
+    start)
+        if [ -f "$HOST_KEY_SRC" ]; then
+            cp "$HOST_KEY_SRC" "$HOST_KEY_DST"
+            chmod 600 "$HOST_KEY_DST"
+        fi
+        if [ -f "$AUTH_KEYS_SRC" ]; then
+            mkdir -p "$AUTH_KEYS_DIR"
+            chmod 700 "$AUTH_KEYS_DIR"
+            cp "$AUTH_KEYS_SRC" "$AUTH_KEYS_DST"
+            chmod 600 "$AUTH_KEYS_DST"
+        fi
+        ;;
+esac
