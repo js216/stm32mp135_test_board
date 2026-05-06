@@ -15,6 +15,7 @@ int gpio_connectivity_mpu_replay_io0_low_report(void);
 int gpio_connectivity_mpu_replay_io1_high_report(void);
 int gpio_connectivity_mpu_replay_io1_low_report(void);
 int gpio_connectivity_mpu_replay_io2_high_report(void);
+int gpio_connectivity_mpu_replay_io2_low_report(void);
 int gpio_connectivity_mpu_replay_io3_high_report(void);
 int gpio_connectivity_mpu_replay_io0_sample_report(void);
 int gpio_connectivity_mpu_replay_io1_sample_report(void);
@@ -32,6 +33,7 @@ static volatile int io0_hold_low;
 static volatile int io1_hold_high;
 static volatile int io1_hold_low;
 static volatile int io2_hold_high;
+static volatile int io2_hold_low;
 static volatile int io3_hold_high;
 static volatile int ncs_hold_low;
 
@@ -56,6 +58,9 @@ static void gpio_test_handle_command(char command)
    } else if (command == '2') {
       if (gpio_connectivity_mpu_replay_io2_high_report())
          io2_hold_high = 1;
+   } else if (command == 'a') {
+      if (gpio_connectivity_mpu_replay_io2_low_report())
+         io2_hold_low = 1;
    } else if (command == '3') {
       if (gpio_connectivity_mpu_replay_io3_high_report())
          io3_hold_high = 1;
@@ -97,7 +102,8 @@ int main(void)
          if (!io1_hold_low)
             gpio_connectivity_mpu_replay_io1_sample_report();
       if (!io2_hold_high)
-         gpio_connectivity_mpu_replay_io2_sample_report();
+         if (!io2_hold_low)
+            gpio_connectivity_mpu_replay_io2_sample_report();
       if (!io3_hold_high)
          gpio_connectivity_mpu_replay_io3_sample_report();
       if (!ncs_hold_low)
