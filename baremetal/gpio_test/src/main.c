@@ -11,6 +11,7 @@
 
 int gpio_connectivity_mpu_replay_stub_run(void);
 int gpio_connectivity_mpu_replay_io0_high_report(void);
+int gpio_connectivity_mpu_replay_io1_high_report(void);
 int gpio_connectivity_mpu_replay_io0_sample_report(void);
 int gpio_connectivity_mpu_replay_io1_sample_report(void);
 int gpio_connectivity_mpu_replay_io2_sample_report(void);
@@ -23,6 +24,7 @@ int gpio_connectivity_mpu_replay_sclk_low_report(void);
 static volatile size_t replay_command_count;
 static volatile int replay_status;
 static volatile int io0_hold_high;
+static volatile int io1_hold_high;
 static volatile int ncs_hold_low;
 
 static void gpio_test_handle_command(char command)
@@ -34,6 +36,9 @@ static void gpio_test_handle_command(char command)
    } else if (command == '0') {
       if (gpio_connectivity_mpu_replay_io0_high_report())
          io0_hold_high = 1;
+   } else if (command == '1') {
+      if (gpio_connectivity_mpu_replay_io1_high_report())
+         io1_hold_high = 1;
    } else if (command == 'n') {
       if (gpio_connectivity_mpu_replay_ncs_low_report())
          ncs_hold_low = 1;
@@ -67,7 +72,8 @@ int main(void)
       gpio_test_poll_commands();
       if (!io0_hold_high)
          gpio_connectivity_mpu_replay_io0_sample_report();
-      gpio_connectivity_mpu_replay_io1_sample_report();
+      if (!io1_hold_high)
+         gpio_connectivity_mpu_replay_io1_sample_report();
       gpio_connectivity_mpu_replay_io2_sample_report();
       gpio_connectivity_mpu_replay_io3_sample_report();
       if (!ncs_hold_low)
