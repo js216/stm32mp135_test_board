@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "console.h"
 #include "connectivity_mpu_replay.h"
 #include "printf.h"
 #include "setup.h"
@@ -18,6 +19,20 @@ int gpio_connectivity_mpu_replay_sclk_drive_report(void);
 
 static volatile size_t replay_command_count;
 static volatile int replay_status;
+
+static void gpio_test_handle_command(char command)
+{
+   if (command == 's') {
+      gpio_connectivity_mpu_replay_sclk_drive_report();
+   }
+}
+
+static void gpio_test_poll_commands(void)
+{
+   while (!console_rx_empty()) {
+      gpio_test_handle_command(console_rx_get());
+   }
+}
 
 int main(void)
 {
@@ -36,6 +51,7 @@ int main(void)
    my_printf("gpio_test replay %s\r\n", replay_status == 0 ? "ok" : "fail");
 
    while (1) {
+      gpio_test_poll_commands();
       gpio_connectivity_mpu_replay_io0_sample_report();
       gpio_connectivity_mpu_replay_io1_sample_report();
       gpio_connectivity_mpu_replay_io2_sample_report();
