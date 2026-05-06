@@ -16,6 +16,7 @@ int gpio_connectivity_mpu_replay_stub_run(void);
 int gpio_connectivity_mpu_replay_io0_high_report(void);
 int gpio_connectivity_mpu_replay_io1_high_report(void);
 int gpio_connectivity_mpu_replay_io2_high_report(void);
+int gpio_connectivity_mpu_replay_io3_high_report(void);
 int gpio_connectivity_mpu_replay_io0_sample_report(void);
 int gpio_connectivity_mpu_replay_io1_sample_report(void);
 int gpio_connectivity_mpu_replay_io2_sample_report(void);
@@ -55,6 +56,10 @@ static const mpu_gpio_signal_t mpu_io1_drive_signal = {
 
 static const mpu_gpio_signal_t mpu_io2_drive_signal = {
     "mpu_qspi_io2_to_fpga_io2", GPIOH, GPIO_PIN_6
+};
+
+static const mpu_gpio_signal_t mpu_io3_drive_signal = {
+    "mpu_qspi_io3_to_fpga_io3", GPIOH, GPIO_PIN_7
 };
 
 static const mpu_gpio_signal_t mpu_sample_signals[] = {
@@ -268,6 +273,20 @@ int gpio_connectivity_mpu_replay_io2_high_report(void)
     HAL_GPIO_WritePin(mpu_io2_drive_signal.port, mpu_io2_drive_signal.pin,
                       GPIO_PIN_SET);
     my_printf("gpio_test mpu_qspi_io2_to_fpga_io2 high drive ok\r\n");
+
+    return 1;
+#else
+    return 1;
+#endif
+}
+
+int gpio_connectivity_mpu_replay_io3_high_report(void)
+{
+#ifndef GPIO_REPLAY_STUB_MAIN
+    configure_mpu_drive_output(&mpu_io3_drive_signal);
+    HAL_GPIO_WritePin(mpu_io3_drive_signal.port, mpu_io3_drive_signal.pin,
+                      GPIO_PIN_SET);
+    my_printf("gpio_test mpu_qspi_io3_to_fpga_io3 high drive ok\r\n");
 
     return 1;
 #else
