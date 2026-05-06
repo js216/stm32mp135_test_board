@@ -1,6 +1,11 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Jakob Kastelic
+
 #include <string.h>
 
 #include "connectivity_mpu_replay.h"
+
+int gpio_connectivity_mpu_replay_stub_run(void);
 
 static int mpu_drive(const char *signal, int value)
 {
