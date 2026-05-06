@@ -13,6 +13,7 @@
 #endif
 
 int gpio_connectivity_mpu_replay_stub_run(void);
+int gpio_connectivity_mpu_replay_io0_sample_report(void);
 int gpio_connectivity_mpu_replay_io1_sample_report(void);
 int gpio_connectivity_mpu_replay_io2_sample_report(void);
 int gpio_connectivity_mpu_replay_io3_sample_report(void);
@@ -25,6 +26,7 @@ typedef struct {
 } mpu_gpio_signal_t;
 
 static const mpu_gpio_signal_t mpu_sample_signals[] = {
+    {"mpu_qspi_io0_to_fpga_io0", GPIOH, GPIO_PIN_3},
     {"mpu_qspi_io1_to_fpga_io1", GPIOF, GPIO_PIN_9},
     {"mpu_qspi_io2_to_fpga_io2", GPIOH, GPIO_PIN_6},
     {"mpu_qspi_io3_to_fpga_io3", GPIOH, GPIO_PIN_7},
@@ -82,7 +84,13 @@ static int mpu_sample_expect(const char *signal, int expected)
     level = expected != 0 ? "high" : "low";
     result = actual == expected ? "ok" : "fail";
 
-    if (strcmp(signal, "mpu_qspi_io1_to_fpga_io1") == 0 && expected == 0 &&
+    if (strcmp(signal, "mpu_qspi_io0_to_fpga_io0") == 0 && expected == 0 &&
+        actual == expected) {
+        my_printf("gpio_test mpu_qspi_io0_to_fpga_io0 low ok\r\n");
+    } else if (strcmp(signal, "mpu_qspi_io0_to_fpga_io0") == 0 &&
+               expected == 1 && actual == expected) {
+        my_printf("gpio_test mpu_qspi_io0_to_fpga_io0 high ok\r\n");
+    } else if (strcmp(signal, "mpu_qspi_io1_to_fpga_io1") == 0 && expected == 0 &&
         actual == expected) {
         my_printf("gpio_test mpu_qspi_io1_to_fpga_io1 low ok\r\n");
     } else if (strcmp(signal, "mpu_qspi_io1_to_fpga_io1") == 0 &&
@@ -130,6 +138,14 @@ int gpio_connectivity_mpu_replay_stub_run(void)
     }
 
     return 0;
+}
+
+int gpio_connectivity_mpu_replay_io0_sample_report(void)
+{
+    int low_ok = mpu_sample_expect("mpu_qspi_io0_to_fpga_io0", 0);
+    int high_ok = mpu_sample_expect("mpu_qspi_io0_to_fpga_io0", 1);
+
+    return low_ok || high_ok;
 }
 
 int gpio_connectivity_mpu_replay_io1_sample_report(void)
