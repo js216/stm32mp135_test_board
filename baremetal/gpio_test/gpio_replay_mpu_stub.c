@@ -13,6 +13,7 @@
 #endif
 
 int gpio_connectivity_mpu_replay_stub_run(void);
+int gpio_connectivity_mpu_replay_io1_sample_report(void);
 
 #ifndef GPIO_REPLAY_STUB_MAIN
 typedef struct {
@@ -112,6 +113,14 @@ int gpio_connectivity_mpu_replay_stub_run(void)
     }
 
     return 0;
+}
+
+int gpio_connectivity_mpu_replay_io1_sample_report(void)
+{
+    int low_ok = mpu_sample_expect("mpu_qspi_io1_to_fpga_io1", 0);
+    int high_ok = mpu_sample_expect("mpu_qspi_io1_to_fpga_io1", 1);
+
+    return low_ok || high_ok;
 }
 
 #ifdef GPIO_REPLAY_STUB_MAIN

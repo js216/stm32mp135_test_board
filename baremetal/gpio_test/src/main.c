@@ -9,6 +9,7 @@
 #include "stm32mp13xx_hal.h"
 
 int gpio_connectivity_mpu_replay_stub_run(void);
+int gpio_connectivity_mpu_replay_io1_sample_report(void);
 
 static volatile size_t replay_command_count;
 static volatile int replay_status;
@@ -30,6 +31,7 @@ int main(void)
    my_printf("gpio_test replay %s\r\n", replay_status == 0 ? "ok" : "fail");
 
    while (1) {
+      gpio_connectivity_mpu_replay_io1_sample_report();
       my_printf("gpio_test ready\r\n");
       HAL_Delay(1000);
    }
