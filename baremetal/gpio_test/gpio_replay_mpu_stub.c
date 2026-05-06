@@ -18,6 +18,7 @@ int gpio_connectivity_mpu_replay_io1_sample_report(void);
 int gpio_connectivity_mpu_replay_io2_sample_report(void);
 int gpio_connectivity_mpu_replay_io3_sample_report(void);
 int gpio_connectivity_mpu_replay_ncs_drive_report(void);
+int gpio_connectivity_mpu_replay_sclk_drive_report(void);
 
 #ifndef GPIO_REPLAY_STUB_MAIN
 typedef struct {
@@ -28,9 +29,15 @@ typedef struct {
 
 #define QSPI_NCS_PORT GPIOD
 #define QSPI_NCS_PIN  GPIO_PIN_1
+#define QSPI_CLK_PORT GPIOF
+#define QSPI_CLK_PIN  GPIO_PIN_10
 
 static const mpu_gpio_signal_t mpu_drive_signals[] = {
     {"mpu_qspi_ncs_to_fpga_cs_n", QSPI_NCS_PORT, QSPI_NCS_PIN},
+};
+
+static const mpu_gpio_signal_t mpu_sclk_drive_signal = {
+    "mpu_qspi_clk_to_fpga_sclk", QSPI_CLK_PORT, QSPI_CLK_PIN
 };
 
 static const mpu_gpio_signal_t mpu_sample_signals[] = {
@@ -117,6 +124,10 @@ static int mpu_drive(const char *signal, int value)
         my_printf("gpio_test mpu_qspi_ncs_to_fpga_cs_n low drive ok\r\n");
     } else if (strcmp(signal, "mpu_qspi_ncs_to_fpga_cs_n") == 0 && value == 1) {
         my_printf("gpio_test mpu_qspi_ncs_to_fpga_cs_n high drive ok\r\n");
+    } else if (strcmp(signal, "mpu_qspi_clk_to_fpga_sclk") == 0 && value == 0) {
+        my_printf("gpio_test mpu_qspi_clk_to_fpga_sclk low drive ok\r\n");
+    } else if (strcmp(signal, "mpu_qspi_clk_to_fpga_sclk") == 0 && value == 1) {
+        my_printf("gpio_test mpu_qspi_clk_to_fpga_sclk high drive ok\r\n");
     } else {
         my_printf("gpio_test %s %s drive ok\r\n", signal, level);
     }
@@ -243,6 +254,23 @@ int gpio_connectivity_mpu_replay_ncs_drive_report(void)
     int high_ok = mpu_drive("mpu_qspi_ncs_to_fpga_cs_n", 1);
 
     return low_ok || high_ok;
+}
+
+int gpio_connectivity_mpu_replay_sclk_drive_report(void)
+{
+#ifndef GPIO_REPLAY_STUB_MAIN
+    configure_mpu_drive_output(&mpu_sclk_drive_signal);
+    HAL_GPIO_WritePin(QSPI_CLK_PORT, QSPI_CLK_PIN, GPIO_PIN_RESET);
+    my_printf("gpio_test mpu_qspi_clk_to_fpga_sclk low drive ok\r\n");
+
+    configure_mpu_drive_output(&mpu_sclk_drive_signal);
+    HAL_GPIO_WritePin(QSPI_CLK_PORT, QSPI_CLK_PIN, GPIO_PIN_SET);
+    my_printf("gpio_test mpu_qspi_clk_to_fpga_sclk high drive ok\r\n");
+
+    return 1;
+#else
+    return 1;
+#endif
 }
 
 #ifdef GPIO_REPLAY_STUB_MAIN
