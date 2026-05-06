@@ -17,6 +17,7 @@ int gpio_connectivity_mpu_replay_io3_sample_report(void);
 int gpio_connectivity_mpu_replay_ncs_drive_report(void);
 int gpio_connectivity_mpu_replay_ncs_low_report(void);
 int gpio_connectivity_mpu_replay_sclk_drive_report(void);
+int gpio_connectivity_mpu_replay_sclk_low_report(void);
 
 static volatile size_t replay_command_count;
 static volatile int replay_status;
@@ -26,6 +27,8 @@ static void gpio_test_handle_command(char command)
 {
    if (command == 's') {
       gpio_connectivity_mpu_replay_sclk_drive_report();
+   } else if (command == 'l') {
+      gpio_connectivity_mpu_replay_sclk_low_report();
    } else if (command == 'n') {
       if (gpio_connectivity_mpu_replay_ncs_low_report())
          ncs_hold_low = 1;

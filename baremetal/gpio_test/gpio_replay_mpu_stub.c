@@ -20,6 +20,7 @@ int gpio_connectivity_mpu_replay_io3_sample_report(void);
 int gpio_connectivity_mpu_replay_ncs_drive_report(void);
 int gpio_connectivity_mpu_replay_ncs_low_report(void);
 int gpio_connectivity_mpu_replay_sclk_drive_report(void);
+int gpio_connectivity_mpu_replay_sclk_low_report(void);
 
 #ifndef GPIO_REPLAY_STUB_MAIN
 typedef struct {
@@ -272,6 +273,19 @@ int gpio_connectivity_mpu_replay_sclk_drive_report(void)
     configure_mpu_drive_output(&mpu_sclk_drive_signal);
     HAL_GPIO_WritePin(QSPI_CLK_PORT, QSPI_CLK_PIN, GPIO_PIN_SET);
     my_printf("gpio_test mpu_qspi_clk_to_fpga_sclk high drive ok\r\n");
+
+    return 1;
+#else
+    return 1;
+#endif
+}
+
+int gpio_connectivity_mpu_replay_sclk_low_report(void)
+{
+#ifndef GPIO_REPLAY_STUB_MAIN
+    configure_mpu_drive_output(&mpu_sclk_drive_signal);
+    HAL_GPIO_WritePin(QSPI_CLK_PORT, QSPI_CLK_PIN, GPIO_PIN_RESET);
+    my_printf("gpio_test mpu_qspi_clk_to_fpga_sclk low drive ok\r\n");
 
     return 1;
 #else
