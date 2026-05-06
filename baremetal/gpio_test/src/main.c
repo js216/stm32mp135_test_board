@@ -15,15 +15,20 @@ int gpio_connectivity_mpu_replay_io1_sample_report(void);
 int gpio_connectivity_mpu_replay_io2_sample_report(void);
 int gpio_connectivity_mpu_replay_io3_sample_report(void);
 int gpio_connectivity_mpu_replay_ncs_drive_report(void);
+int gpio_connectivity_mpu_replay_ncs_low_report(void);
 int gpio_connectivity_mpu_replay_sclk_drive_report(void);
 
 static volatile size_t replay_command_count;
 static volatile int replay_status;
+static volatile int ncs_hold_low;
 
 static void gpio_test_handle_command(char command)
 {
    if (command == 's') {
       gpio_connectivity_mpu_replay_sclk_drive_report();
+   } else if (command == 'n') {
+      if (gpio_connectivity_mpu_replay_ncs_low_report())
+         ncs_hold_low = 1;
    }
 }
 
@@ -56,7 +61,8 @@ int main(void)
       gpio_connectivity_mpu_replay_io1_sample_report();
       gpio_connectivity_mpu_replay_io2_sample_report();
       gpio_connectivity_mpu_replay_io3_sample_report();
-      gpio_connectivity_mpu_replay_ncs_drive_report();
+      if (!ncs_hold_low)
+         gpio_connectivity_mpu_replay_ncs_drive_report();
       my_printf("gpio_test ready\r\n");
       HAL_Delay(1000);
    }

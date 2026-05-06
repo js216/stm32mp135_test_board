@@ -18,6 +18,7 @@ int gpio_connectivity_mpu_replay_io1_sample_report(void);
 int gpio_connectivity_mpu_replay_io2_sample_report(void);
 int gpio_connectivity_mpu_replay_io3_sample_report(void);
 int gpio_connectivity_mpu_replay_ncs_drive_report(void);
+int gpio_connectivity_mpu_replay_ncs_low_report(void);
 int gpio_connectivity_mpu_replay_sclk_drive_report(void);
 
 #ifndef GPIO_REPLAY_STUB_MAIN
@@ -254,6 +255,11 @@ int gpio_connectivity_mpu_replay_ncs_drive_report(void)
     int high_ok = mpu_drive("mpu_qspi_ncs_to_fpga_cs_n", 1);
 
     return low_ok || high_ok;
+}
+
+int gpio_connectivity_mpu_replay_ncs_low_report(void)
+{
+    return mpu_drive("mpu_qspi_ncs_to_fpga_cs_n", 0);
 }
 
 int gpio_connectivity_mpu_replay_sclk_drive_report(void)
