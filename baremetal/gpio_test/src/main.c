@@ -13,6 +13,7 @@ int gpio_connectivity_mpu_replay_io0_sample_report(void);
 int gpio_connectivity_mpu_replay_io1_sample_report(void);
 int gpio_connectivity_mpu_replay_io2_sample_report(void);
 int gpio_connectivity_mpu_replay_io3_sample_report(void);
+int gpio_connectivity_mpu_replay_ncs_drive_report(void);
 
 static volatile size_t replay_command_count;
 static volatile int replay_status;
@@ -38,6 +39,7 @@ int main(void)
       gpio_connectivity_mpu_replay_io1_sample_report();
       gpio_connectivity_mpu_replay_io2_sample_report();
       gpio_connectivity_mpu_replay_io3_sample_report();
+      gpio_connectivity_mpu_replay_ncs_drive_report();
       my_printf("gpio_test ready\r\n");
       HAL_Delay(1000);
    }
