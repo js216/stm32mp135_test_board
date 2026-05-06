@@ -14,6 +14,7 @@
 
 int gpio_connectivity_mpu_replay_stub_run(void);
 int gpio_connectivity_mpu_replay_io0_high_report(void);
+int gpio_connectivity_mpu_replay_io0_low_report(void);
 int gpio_connectivity_mpu_replay_io1_high_report(void);
 int gpio_connectivity_mpu_replay_io2_high_report(void);
 int gpio_connectivity_mpu_replay_io3_high_report(void);
@@ -245,6 +246,20 @@ int gpio_connectivity_mpu_replay_io0_high_report(void)
     HAL_GPIO_WritePin(mpu_io0_drive_signal.port, mpu_io0_drive_signal.pin,
                       GPIO_PIN_SET);
     my_printf("gpio_test mpu_qspi_io0_to_fpga_io0 high drive ok\r\n");
+
+    return 1;
+#else
+    return 1;
+#endif
+}
+
+int gpio_connectivity_mpu_replay_io0_low_report(void)
+{
+#ifndef GPIO_REPLAY_STUB_MAIN
+    configure_mpu_drive_output(&mpu_io0_drive_signal);
+    HAL_GPIO_WritePin(mpu_io0_drive_signal.port, mpu_io0_drive_signal.pin,
+                      GPIO_PIN_RESET);
+    my_printf("gpio_test mpu_qspi_io0_to_fpga_io0 low drive ok\r\n");
 
     return 1;
 #else
