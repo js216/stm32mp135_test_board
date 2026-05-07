@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Mount configfs for USB gadget setup.
+
+case "$1" in
+    start)
+        mkdir -p /sys/kernel/config
+        if ! grep -qs '^[^ ]* /sys/kernel/config configfs ' /proc/mounts; then
+            mount -t configfs configfs /sys/kernel/config
+        fi
+        ;;
+esac
+
+exit 0
