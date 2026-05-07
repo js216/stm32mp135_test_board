@@ -38,13 +38,16 @@ br:
 	$(MAKE) -C buildroot BR2_DEFCONFIG=../config/buildroot.conf defconfig
 	$(MAKE) -C buildroot
 
-sd:
+sd: buildroot/output/images/rootfs.ext2
 	python3 bootloader/scripts/sdimage.py \
 		buildroot/output/images/sdcard.img \
 		bootloader/build/main.stm32 \
 		--partition linux/arch/arm/boot/zImage \
 		--partition linux/arch/arm/boot/dts/$(DTS).dtb \
 		--partition buildroot/output/images/rootfs.ext2
+
+buildroot/output/images/rootfs.ext2:
+	$(MAKE) br
 
 nand:
 	python3 bootloader/scripts/nandimage.py \
