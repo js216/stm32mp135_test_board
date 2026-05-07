@@ -239,7 +239,7 @@
     {
       "signal": "mpu_reset_output_to_fpga_reset_n",
       "mpu_signal_pin": "MP135 GPIO reset output, exact MPU pin TBD",
-      "fpga_signal_pin": "FPGA reset_n, exact FPGA pin TBD",
+      "fpga_signal_pin": "FPGA reset_n on pins[0], iCEstick pin 112",
       "direction": "MPU -> FPGA",
       "voltage_domain": "Assumed 3.3 V LVCMOS control GPIO",
       "mpu_role": "drive",
