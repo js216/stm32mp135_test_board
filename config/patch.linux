@@ -10,6 +10,28 @@ index 98145031586f..2479ec486c4e 100644
  	select ARM_AMBA
  	select ARCH_HAS_RESET_CONTROLLER
  	select CLKSRC_STM32
+diff --git a/drivers/clk/clk.c b/drivers/clk/clk.c
+index ba7d28d852a7..56bba2f566ae 100644
+--- a/drivers/clk/clk.c
++++ b/drivers/clk/clk.c
+@@ -1353,12 +1353,15 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
+ 	 * back to .disable
+ 	 */
+ 	if (clk_core_is_enabled(core)) {
+ 		trace_clk_disable(core);
+-		if (core->ops->disable_unused)
++		if (core->ops->disable_unused) {
++			pr_err("clk_disable_unused trace: %s\n", core->name);
+ 			core->ops->disable_unused(core->hw);
+-		else if (core->ops->disable)
++		} else if (core->ops->disable) {
++			pr_err("clk_disable_unused trace: %s\n", core->name);
+ 			core->ops->disable(core->hw);
++		}
+ 		trace_clk_disable_complete(core);
+ 	}
+ 
+ unlock_out:
 diff --git a/drivers/clk/stm32/clk-stm32-core.c b/drivers/clk/stm32/clk-stm32-core.c
 index 3933649337d9..9a0a4f06decf 100644
 --- a/drivers/clk/stm32/clk-stm32-core.c
