@@ -31,6 +31,26 @@ static inline void prbs_step_with_checksum(prbs_state_t *s)
    s->checksum ^= prev;
 }
 
+static void prbs_test_handle_command(volatile prbs_state_t *s, char command)
+{
+   switch (command) {
+   case 'r':
+      s->state = PRBS_SEED;
+      s->checksum = 0;
+      my_printf("prbs reset\r\n");
+      break;
+   default:
+      break;
+   }
+}
+
+static void prbs_test_poll_commands(volatile prbs_state_t *s)
+{
+   while (!console_rx_empty()) {
+      prbs_test_handle_command(s, console_rx_get());
+   }
+}
+
 int main(void)
 {
    HAL_Init();
@@ -49,6 +69,7 @@ int main(void)
    prbs_step_with_checksum((prbs_state_t *)&pstate);
    (void)pstate.checksum;
    while (1) {
+      prbs_test_poll_commands(&pstate);
    }
 
    return 0;
