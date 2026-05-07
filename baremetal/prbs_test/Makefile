@@ -1,53 +1,59 @@
 # SPDX-License-Identifier: MIT
-# Makefile --- MP135 baremetal prbs_test skeleton build.
+# Makefile --- MP135 baremetal prbs_test build.
 # Copyright (c) 2026 Jakob Kastelic
-BUILDDIR   = build
-BINARYNAME = $(BUILDDIR)/main
-OBJDIR     = $(BUILDDIR)/obj
-OBJECTS    = $(addprefix $(OBJDIR)/, $(addsuffix .o, $(basename $(SOURCES))))
-LINKSCR    = stm32mp13xx_a7_sysram.ld
 
-SOURCES = \
-	 src/main.c \
-	 drivers/mmu_stm32mp13xx.c \
-	 drivers/system_stm32mp13xx_A7.c \
-	 drivers/startup_stm32mp135fxx_ca7.c \
-	 drivers/syscalls.c \
-	 drivers/irq_ctrl_gic.c \
-	 drivers/stm32mp13xx_hal.c \
-	 drivers/stm32mp13xx_hal_gpio.c \
-	 drivers/stm32mp13xx_hal_rcc.c \
-	 drivers/stm32mp13xx_hal_rcc_ex.c \
-	 drivers/stm32mp13xx_hal_uart.c \
-	 drivers/stm32mp13xx_hal_uart_ex.c \
+SHARED_APP := ../uart_echo
+
+LOCAL_SRC := \
+	src/main.c
+SHARED_SRC := \
+	$(SHARED_APP)/src/console.c \
+	$(SHARED_APP)/src/debug.c \
+	$(SHARED_APP)/src/setup.c \
+	$(SHARED_APP)/utils/printf.c \
+	$(SHARED_APP)/drivers/mmu_stm32mp13xx.c \
+	$(SHARED_APP)/drivers/system_stm32mp13xx_A7.c \
+	$(SHARED_APP)/drivers/startup_stm32mp135fxx_ca7.c \
+	$(SHARED_APP)/drivers/syscalls.c \
+	$(SHARED_APP)/drivers/irq_ctrl_gic.c \
+	$(SHARED_APP)/drivers/stm32mp13xx_hal.c \
+	$(SHARED_APP)/drivers/stm32mp13xx_hal_gpio.c \
+	$(SHARED_APP)/drivers/stm32mp13xx_hal_rcc.c \
+	$(SHARED_APP)/drivers/stm32mp13xx_hal_rcc_ex.c \
+	$(SHARED_APP)/drivers/stm32mp13xx_hal_uart.c \
+	$(SHARED_APP)/drivers/stm32mp13xx_hal_uart_ex.c
+OBJ := \
+	$(patsubst %.c,build/%.o,$(LOCAL_SRC)) \
+	$(patsubst $(SHARED_APP)/%.c,build/shared/%.o,$(SHARED_SRC))
 
 CFLAGS = \
-	 -g2 \
-	 -O0 \
-	 -Isrc -Idrivers \
-	 -fno-common \
-	 -DUSE_FULL_LL_DRIVER \
-	 -DSTM32MP135Fxx \
-	 -DSTM32MP1 \
-	 -DCORE_CA7 \
-	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
-	 -fdata-sections -ffunction-sections \
-	 -nostartfiles \
-	 -ffreestanding
+	-I$(SHARED_APP)/src \
+	-Isrc -I. \
+	-I$(SHARED_APP)/drivers \
+	-I$(SHARED_APP)/utils \
+	-D__int64_t_defined=1 \
+	-std=c99 -Wall -Wextra -Wpedantic -Wshadow -Wundef \
+	-Wmissing-prototypes -Wpointer-arith -Wfloat-equal \
+	-g3 -Os -MMD -MP \
+	-mcpu=cortex-a7 -march=armv7ve \
+	-mfpu=neon-vfpv4 -mfloat-abi=hard -mlittle-endian \
+	-fdata-sections -ffunction-sections \
+	-ffreestanding -fno-common -nostartfiles \
+	-DEVB
 
 LFLAGS = \
 	 -Wl,--gc-sections \
-	 -Wl,-Map,$(BINARYNAME).map,--cref \
+	 -Wl,-Map,build/main.map,--cref \
 	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
-	 -T $(LINKSCR) \
 	 -specs=nano.specs -specs=nosys.specs \
 	 -nostartfiles \
 	 -ffreestanding \
 	 -Wl,--print-memory-usage \
 
 .PHONY: all clean install check-port
+.DEFAULT_GOAL := all
 
-all: $(BINARYNAME).stm32
+all: build/main.stm32
 
 clean:
 	rm -rf build
@@ -57,18 +63,24 @@ ifndef PORT
 	$(error PORT not set. Usage: make install PORT=COM1)
 endif
 
-install: $(BINARYNAME).stm32 check-port
-	python3 scripts/uart_boot.py -c $(PORT) -f $<
+install: build/main.stm32 check-port
+	python3 $(SHARED_APP)/scripts/uart_boot.py -c $(PORT) -f $<
 
-$(OBJDIR)/%.o: %.c
+build/main.elf: $(OBJ) Makefile $(SHARED_APP)/src/sysram.ld
+	arm-none-eabi-gcc $(LFLAGS) -T $(SHARED_APP)/src/sysram.ld -o $@ $(OBJ)
+
+build/%.o: %.c
 	mkdir -p $(dir $@)
 	arm-none-eabi-gcc -c $(CFLAGS) $< -o $@
 
-$(BINARYNAME).elf: $(OBJECTS) $(LINKSCR)
-	arm-none-eabi-gcc $(LFLAGS) -o $@ $(OBJECTS)
+build/shared/%.o: $(SHARED_APP)/%.c
+	mkdir -p $(dir $@)
+	arm-none-eabi-gcc -c $(CFLAGS) $< -o $@
 
-$(BINARYNAME).bin: $(BINARYNAME).elf
+%.bin: %.elf
 	arm-none-eabi-objcopy -O binary $< $@
 
-$(BINARYNAME).stm32: $(BINARYNAME).bin
-	python3 scripts/stm32_header.py -e $(BINARYNAME).elf -b $< -o $@ -t .RESET
+%.stm32: %.bin
+	python3 $(SHARED_APP)/scripts/stm32_header.py -e $*.elf -b $< -o $@ -t .RESET
+
+-include $(OBJ:.o=.d)

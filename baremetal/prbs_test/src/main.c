@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Jakob Kastelic
-// main.c --- minimal MP135 PRBS skeleton (LFSR step + XOR checksum).
+// main.c --- MP135 PRBS skeleton with UART ready banner.
 #include <stdint.h>
+
+#include "console.h"
+#include "printf.h"
+#include "setup.h"
+#include "stm32mp13xx_hal.h"
 
 #define PRBS_POLY 0x80200003u
 #define PRBS_SEED 0x00000001u
@@ -26,8 +31,15 @@ static inline void prbs_step_with_checksum(prbs_state_t *s)
    s->checksum ^= prev;
 }
 
-void main(void)
+int main(void)
 {
+   HAL_Init();
+   sysclk_init();
+   perclk_init();
+   uart4_init();
+
+   my_printf("prbs_test ready\r\n");
+
    volatile uint32_t state = PRBS_SEED;
    state = prbs_step(state);
    (void)state;
@@ -38,6 +50,8 @@ void main(void)
    (void)pstate.checksum;
    while (1) {
    }
+
+   return 0;
 }
 
 // end file main.c
