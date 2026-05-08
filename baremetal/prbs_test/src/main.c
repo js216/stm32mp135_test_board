@@ -39,6 +39,10 @@ static void prbs_test_handle_command(volatile prbs_state_t *s, char command)
       s->checksum = 0;
       my_printf("prbs reset\r\n");
       break;
+   case 's':
+      prbs_step_with_checksum((prbs_state_t *)s);
+      my_printf("prbs step\r\n");
+      break;
    default:
       break;
    }

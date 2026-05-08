@@ -12,36 +12,35 @@ MISSION = ROOT / "missions" / "fpga-spi.md"
 
 SETUP_MARKS = {
     "gpio_physical_replay_setup_reset",
-    "gpio_physical_replay_setup_smoke",
+    "gpio_physical_replay_setup_precondition",
 }
-QSPI_PHYSICAL_MARKS = {
+QSPI_CONNECTIVITY_MARKS = {
     "sclk": {
-        "gpio_physical_mp135_to_fpga_sclk_high",
-        "gpio_physical_mp135_to_fpga_sclk_low",
+        "gpio_sclk_uart_trigger_blocked_audit",
     },
     "cs_n": {
-        "gpio_physical_mp135_to_fpga_ncs_high",
-        "gpio_physical_mp135_to_fpga_ncs_low",
+        "gpio_physical_fpga_ncs_high_audit",
+        "gpio_physical_mp135_to_fpga_ncs_low_blocked_audit",
     },
     "io0": {
-        "gpio_physical_fpga_to_mpu_io0",
-        "gpio_physical_mp135_to_fpga_io0_high",
-        "gpio_physical_mp135_to_fpga_io0_low",
+        "gpio_physical_fpga_io0_drive_audit",
+        "gpio_physical_mp135_to_fpga_io0_high_blocked_audit",
+        "gpio_physical_mp135_to_fpga_io0_low_blocked_audit",
     },
     "io1": {
-        "gpio_physical_fpga_to_mpu_io1",
-        "gpio_physical_mp135_to_fpga_io1_high",
-        "gpio_physical_mp135_to_fpga_io1_low",
+        "gpio_physical_fpga_io1_drive_audit",
+        "gpio_physical_mp135_to_fpga_io1_high_blocked_audit",
+        "gpio_physical_mp135_to_fpga_io1_low_blocked_audit",
     },
     "io2": {
-        "gpio_physical_fpga_to_mpu_io2",
-        "gpio_physical_mp135_to_fpga_io2_high",
-        "gpio_physical_mp135_to_fpga_io2_low",
+        "gpio_physical_fpga_io2_drive_audit",
+        "gpio_physical_mp135_to_fpga_io2_high_blocked_audit",
+        "gpio_physical_mp135_to_fpga_io2_low_blocked_audit",
     },
     "io3": {
-        "gpio_physical_fpga_to_mpu_io3",
-        "gpio_physical_mp135_to_fpga_io3_high",
-        "gpio_physical_mp135_to_fpga_io3_low",
+        "gpio_physical_fpga_io3_drive_audit",
+        "gpio_physical_mp135_to_fpga_io3_high_blocked_audit",
+        "gpio_physical_mp135_to_fpga_io3_low_blocked_audit",
     },
 }
 SUPPORTING_AUDIT_MARKS = {
@@ -102,8 +101,8 @@ def validate_closure(mission_path=MISSION):
     found_marks = find_mark_tags(above_wip)
 
     require_marks(found_marks, SETUP_MARKS, "physical setup prerequisites")
-    for signal, marks in sorted(QSPI_PHYSICAL_MARKS.items()):
-        require_marks(found_marks, marks, f"QSPI {signal} physical evidence")
+    for signal, marks in sorted(QSPI_CONNECTIVITY_MARKS.items()):
+        require_marks(found_marks, marks, f"QSPI {signal} connectivity evidence")
     require_marks(found_marks, SUPPORTING_AUDIT_MARKS, "supporting connectivity audits")
     require_closure_section(mission)
 
@@ -115,10 +114,14 @@ def main():
         print(f"physical connectivity closure validation failed: {exc}", file=sys.stderr)
         return 1
 
-    n_physical = len(SETUP_MARKS) + sum(len(marks) for marks in QSPI_PHYSICAL_MARKS.values())
+    n_connectivity = (
+        len(SETUP_MARKS) +
+        sum(len(marks) for marks in QSPI_CONNECTIVITY_MARKS.values())
+    )
     print(
         "physical connectivity closure validated "
-        f"{n_physical} physical marks and {len(SUPPORTING_AUDIT_MARKS)} audits"
+        f"{n_connectivity} connectivity marks and "
+        f"{len(SUPPORTING_AUDIT_MARKS)} audits"
     )
     return 0
 
