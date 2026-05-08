@@ -11,17 +11,39 @@ AUTH_KEYS_SRC=/etc/dropbear/authorized_keys.root.txt
 AUTH_KEYS_DIR=/root/.ssh
 AUTH_KEYS_DST=${AUTH_KEYS_DIR}/authorized_keys
 
+mount_root_rw_if_possible() {
+    mount -o remount,rw / 2>/dev/null || true
+}
+
+install_file_if_possible() {
+    src=$1
+    dst=$2
+    mode=$3
+
+    if [ ! -f "$src" ]; then
+        return 0
+    fi
+
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+        chmod "$mode" "$dst" || true
+        return 0
+    fi
+
+    if cp "$src" "$dst"; then
+        chmod "$mode" "$dst" || true
+    else
+        echo "warning: could not install $dst; keeping image copy"
+    fi
+}
+
 case "$1" in
     start)
-        if [ -f "$HOST_KEY_SRC" ]; then
-            cp "$HOST_KEY_SRC" "$HOST_KEY_DST"
-            chmod 600 "$HOST_KEY_DST"
+        mount_root_rw_if_possible
+        install_file_if_possible "$HOST_KEY_SRC" "$HOST_KEY_DST" 600
+        if [ ! -d "$AUTH_KEYS_DIR" ]; then
+            mkdir -p "$AUTH_KEYS_DIR" || true
         fi
-        if [ -f "$AUTH_KEYS_SRC" ]; then
-            mkdir -p "$AUTH_KEYS_DIR"
-            chmod 700 "$AUTH_KEYS_DIR"
-            cp "$AUTH_KEYS_SRC" "$AUTH_KEYS_DST"
-            chmod 600 "$AUTH_KEYS_DST"
-        fi
+        chmod 700 "$AUTH_KEYS_DIR" 2>/dev/null || true
+        install_file_if_possible "$AUTH_KEYS_SRC" "$AUTH_KEYS_DST" 600
         ;;
 esac

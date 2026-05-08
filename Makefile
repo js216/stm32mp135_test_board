@@ -21,8 +21,8 @@ patch:
 
 kernel:
 	cp config/linux.conf linux/.config
+	$(MAKE) -C linux $(LO) clean
 	$(MAKE) -C linux $(LO) olddefconfig
-	rm -f linux/arch/arm/boot/zImage
 	$(MAKE) -C linux $(LO) -j$(shell nproc) zImage
 	truncate -s +500K linux/arch/arm/boot/zImage
 
