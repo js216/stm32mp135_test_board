@@ -38,7 +38,7 @@ br:
 	$(MAKE) -C buildroot BR2_DEFCONFIG=../config/buildroot.conf defconfig
 	$(MAKE) -C buildroot
 
-sd:
+sd: dtb
 	python3 bootloader/scripts/sdimage.py \
 		buildroot/output/images/sdcard.img \
 		bootloader/build/main.stm32 \

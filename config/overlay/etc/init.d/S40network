@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jakob Kastelic
 #
 # Start the network....
 #
@@ -6,10 +8,31 @@
 # Debian ifupdown needs the /run/network lock directory
 mkdir -p /run/network
 
+IFUP_TIMEOUT_S="${IFUP_TIMEOUT_S:-60}"
+
+start_network()
+{
+	/sbin/ifup -a &
+	pid="$!"
+	deadline="$(($(date +%s) + IFUP_TIMEOUT_S))"
+
+	while kill -0 "$pid" 2>/dev/null; do
+		if [ "$(date +%s)" -ge "$deadline" ]; then
+			printf "timeout waiting for ifup "
+			kill "$pid" 2>/dev/null
+			wait "$pid" 2>/dev/null
+			return 1
+		fi
+		sleep 1
+	done
+
+	wait "$pid"
+}
+
 case "$1" in
   start)
 	printf "Starting network: "
-	/sbin/ifup -a &
+	start_network
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 	;;
   stop)
@@ -27,4 +50,3 @@ case "$1" in
 esac
 
 exit $?
-
