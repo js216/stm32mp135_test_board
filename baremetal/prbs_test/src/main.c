@@ -32,6 +32,16 @@ static inline void prbs_step_with_checksum(prbs_state_t *s)
    s->checksum ^= prev;
 }
 
+static void prbs_test_print_hex32(uint32_t value)
+{
+   static const char hex[] = "0123456789abcdef";
+
+   for (int shift = 28; shift >= 0; shift -= 4) {
+      my_printf("%c", hex[(value >> shift) & 0xfu]);
+   }
+   my_printf("\r\n");
+}
+
 static void prbs_test_handle_command(volatile prbs_state_t *s, char command)
 {
    switch (command) {
@@ -49,6 +59,9 @@ static void prbs_test_handle_command(volatile prbs_state_t *s, char command)
          prbs_step_with_checksum((prbs_state_t *)s);
       }
       my_printf("prbs burst\r\n");
+      break;
+   case 'p':
+      prbs_test_print_hex32(s->checksum);
       break;
    default:
       break;
