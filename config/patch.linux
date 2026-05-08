@@ -14,7 +14,15 @@ diff --git a/drivers/clk/clk.c b/drivers/clk/clk.c
 index ba7d28d852a7..56bba2f566ae 100644
 --- a/drivers/clk/clk.c
 +++ b/drivers/clk/clk.c
-@@ -1353,12 +1353,15 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
+@@ -21,6 +21,7 @@
+ #include <linux/pm_runtime.h>
+ #include <linux/sched.h>
+ #include <linux/clkdev.h>
++#include <linux/string.h>
+
+ #include "clk.h"
+
+@@ -1353,12 +1354,26 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
  	 * back to .disable
  	 */
  	if (clk_core_is_enabled(core)) {
@@ -22,12 +30,25 @@ index ba7d28d852a7..56bba2f566ae 100644
 -		if (core->ops->disable_unused)
 +		if (core->ops->disable_unused) {
 +			pr_err("clk_disable_unused trace: %s\n", core->name);
- 			core->ops->disable_unused(core->hw);
+-			core->ops->disable_unused(core->hw);
++			if (!core->name ||
++			    (strcmp(core->name, "i2c4_k") &&
++			     strcmp(core->name, "stgen_k") &&
++			     strcmp(core->name, "tim15_k") &&
++			     strcmp(core->name, "bkpsram")))
++				core->ops->disable_unused(core->hw);
 -		else if (core->ops->disable)
 +		} else if (core->ops->disable) {
 +			pr_err("clk_disable_unused trace: %s\n", core->name);
- 			core->ops->disable(core->hw);
+-			core->ops->disable(core->hw);
++			if (!core->name ||
++			    (strcmp(core->name, "i2c4_k") &&
++			     strcmp(core->name, "stgen_k") &&
++			     strcmp(core->name, "tim15_k") &&
++			     strcmp(core->name, "bkpsram")))
++				core->ops->disable(core->hw);
 +		}
++		pr_err("clk_disable_unused after: %s\n", core->name);
  		trace_clk_disable_complete(core);
  	}
  
