@@ -22,25 +22,97 @@ index ba7d28d852a7..56bba2f566ae 100644
 
  #include "clk.h"
 
-@@ -1353,12 +1354,26 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
- 	 * back to .disable
- 	 */
- 	if (clk_core_is_enabled(core)) {
- 		trace_clk_disable(core);
+@@ -1325,45 +1326,68 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
+ static void __init clk_disable_unused_subtree(struct clk_core *core)
+ {
+-	struct clk_core *child;
+-	unsigned long flags;
+-
+-	lockdep_assert_held(&prepare_lock);
+-
+-	hlist_for_each_entry(child, &core->children, child_node)
+-		clk_disable_unused_subtree(child);
+-
+-	if (core->flags & CLK_OPS_PARENT_ENABLE)
+-		clk_core_prepare_enable(core->parent);
+-
+-	if (clk_pm_runtime_get(core))
+-		goto unprepare_out;
+-
+-	flags = clk_enable_lock();
+-
+-	if (core->enable_count)
+-		goto unlock_out;
+-
+-	if (core->flags & CLK_IGNORE_UNUSED)
+-		goto unlock_out;
+-
+-	/*
+-	 * some gate clocks have special needs during the disable-unused
+-	 * sequence.  call .disable_unused if available, otherwise fall
+-	 * back to .disable
+-	 */
+-	if (clk_core_is_enabled(core)) {
+-		trace_clk_disable(core);
 -		if (core->ops->disable_unused)
+-			core->ops->disable_unused(core->hw);
+-		else if (core->ops->disable)
+-			core->ops->disable(core->hw);
+-		trace_clk_disable_complete(core);
+-	}
+-
+-unlock_out:
+-	clk_enable_unlock(flags);
+-	clk_pm_runtime_put(core);
+-unprepare_out:
+-	if (core->flags & CLK_OPS_PARENT_ENABLE)
+-		clk_core_disable_unprepare(core->parent);
++	struct clk_core *child;
++	unsigned long flags;
++	static bool post_bkpsram_next;
++
++	lockdep_assert_held(&prepare_lock);
++
++	if (post_bkpsram_next) {
++		pr_err("clk_disable_unused post-bkpsram next: %s\n",
++		       core->name);
++		post_bkpsram_next = false;
++	}
++
++	hlist_for_each_entry(child, &core->children, child_node)
++		clk_disable_unused_subtree(child);
++
++	if (core->flags & CLK_OPS_PARENT_ENABLE)
++		clk_core_prepare_enable(core->parent);
++
++	if (clk_pm_runtime_get(core))
++		goto unprepare_out;
++
++	flags = clk_enable_lock();
++
++	if (core->enable_count)
++		goto unlock_out;
++
++	if (core->flags & CLK_IGNORE_UNUSED)
++		goto unlock_out;
++
++	/*
++	 * some gate clocks have special needs during the disable-unused
++	 * sequence.  call .disable_unused if available, otherwise fall
++	 * back to .disable
++	 */
++	if (clk_core_is_enabled(core)) {
++		trace_clk_disable(core);
 +		if (core->ops->disable_unused) {
 +			pr_err("clk_disable_unused trace: %s\n", core->name);
--			core->ops->disable_unused(core->hw);
 +			if (!core->name ||
 +			    (strcmp(core->name, "i2c4_k") &&
 +			     strcmp(core->name, "stgen_k") &&
 +			     strcmp(core->name, "tim15_k") &&
 +			     strcmp(core->name, "bkpsram")))
 +				core->ops->disable_unused(core->hw);
--		else if (core->ops->disable)
 +		} else if (core->ops->disable) {
 +			pr_err("clk_disable_unused trace: %s\n", core->name);
--			core->ops->disable(core->hw);
 +			if (!core->name ||
 +			    (strcmp(core->name, "i2c4_k") &&
 +			     strcmp(core->name, "stgen_k") &&
@@ -49,10 +121,18 @@ index ba7d28d852a7..56bba2f566ae 100644
 +				core->ops->disable(core->hw);
 +		}
 +		pr_err("clk_disable_unused after: %s\n", core->name);
- 		trace_clk_disable_complete(core);
- 	}
- 
- unlock_out:
++		if (core->name && !strcmp(core->name, "bkpsram"))
++			post_bkpsram_next = true;
++		trace_clk_disable_complete(core);
++	}
++
++unlock_out:
++	clk_enable_unlock(flags);
++	clk_pm_runtime_put(core);
++unprepare_out:
++	if (core->flags & CLK_OPS_PARENT_ENABLE)
++		clk_core_disable_unprepare(core->parent);
+ }
 diff --git a/drivers/clk/stm32/clk-stm32-core.c b/drivers/clk/stm32/clk-stm32-core.c
 index 3933649337d9..9a0a4f06decf 100644
 --- a/drivers/clk/stm32/clk-stm32-core.c
