@@ -10,6 +10,7 @@
 
 #define PRBS_POLY 0x80200003u
 #define PRBS_SEED 0x00000001u
+#define PRBS_BURST_WORDS 65536u
 
 typedef struct {
    uint32_t state;
@@ -42,6 +43,12 @@ static void prbs_test_handle_command(volatile prbs_state_t *s, char command)
    case 's':
       prbs_step_with_checksum((prbs_state_t *)s);
       my_printf("prbs step\r\n");
+      break;
+   case 'b':
+      for (uint32_t i = 0; i < PRBS_BURST_WORDS; ++i) {
+         prbs_step_with_checksum((prbs_state_t *)s);
+      }
+      my_printf("prbs burst\r\n");
       break;
    default:
       break;
