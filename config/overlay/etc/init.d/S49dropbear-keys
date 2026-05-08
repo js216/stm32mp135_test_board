@@ -12,6 +12,10 @@ AUTH_KEYS_DIR=/root/.ssh
 AUTH_KEYS_DST=${AUTH_KEYS_DIR}/authorized_keys
 
 mount_root_rw_if_possible() {
+    root_dev="$(awk '$2 == "/" { print $1; exit }' /proc/mounts)"
+    if [ -n "$root_dev" ]; then
+        mount -o remount,rw "$root_dev" / 2>/dev/null && return 0
+    fi
     mount -o remount,rw / 2>/dev/null || true
 }
 
@@ -23,6 +27,8 @@ install_file_if_possible() {
     if [ ! -f "$src" ]; then
         return 0
     fi
+
+    chmod "$mode" "$src" || true
 
     if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
         chmod "$mode" "$dst" || true
