@@ -10,13 +10,42 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/rtc/rtc-stm32.h>
-#include <dt-bindings/bus/stm32mp13_sys_bus.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/stm32mp13-clks.h>
 #include <dt-bindings/regulator/st,stm32mp13-regulator.h>
 #include <dt-bindings/reset/stm32mp13-resets.h>
 #include <dt-bindings/thermal/thermal.h>
 #include <dt-bindings/pinctrl/stm32-pinfunc.h>
+
+#define STM32MP1_ETZPC_LPTIM2_ID	1
+#define STM32MP1_ETZPC_LPTIM3_ID	2
+#define STM32MP1_ETZPC_LTDC_ID		3
+#define STM32MP1_ETZPC_DCMIPP_ID	4
+#define STM32MP1_ETZPC_USBPHYCTRL_ID	5
+#define STM32MP1_ETZPC_USART1_ID	16
+#define STM32MP1_ETZPC_USART2_ID	17
+#define STM32MP1_ETZPC_SPI4_ID		18
+#define STM32MP1_ETZPC_SPI5_ID		19
+#define STM32MP1_ETZPC_I2C3_ID		20
+#define STM32MP1_ETZPC_I2C4_ID		21
+#define STM32MP1_ETZPC_I2C5_ID		22
+#define STM32MP1_ETZPC_TIM12_ID		23
+#define STM32MP1_ETZPC_TIM13_ID		24
+#define STM32MP1_ETZPC_TIM14_ID		25
+#define STM32MP1_ETZPC_TIM15_ID		26
+#define STM32MP1_ETZPC_TIM16_ID		27
+#define STM32MP1_ETZPC_TIM17_ID		28
+#define STM32MP1_ETZPC_ADC1_ID		32
+#define STM32MP1_ETZPC_ADC2_ID		33
+#define STM32MP1_ETZPC_OTG_ID		34
+#define STM32MP1_ETZPC_RNG_ID		40
+#define STM32MP1_ETZPC_HASH_ID		41
+#define STM32MP1_ETZPC_ETH1_ID		48
+#define STM32MP1_ETZPC_ETH2_ID		49
+#define STM32MP1_ETZPC_SDMMC1_ID	50
+#define STM32MP1_ETZPC_SDMMC2_ID	51
+#define STM32MP1_ETZPC_FMC_ID		54
+#define STM32MP1_ETZPC_QSPI_ID		55
 
 / {
 	#address-cells = <1>;
@@ -135,18 +164,6 @@
 		interrupts = <GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-affinity = <&cpu0>;
 		interrupt-parent = <&intc>;
-	};
-
-	arm_wdt: watchdog {
-		compatible = "arm,smc-wdt";
-		arm,smc-id = <0xb200005a>;
-		timeout-sec = <32>;
-		status = "okay";
-	};
-
-	psci {
-		compatible = "arm,psci-1.0";
-		method = "smc";
 	};
 
 	timer {
