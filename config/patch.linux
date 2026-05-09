@@ -22,7 +22,7 @@ index ba7d28d852a7..56bba2f566ae 100644
 
  #include "clk.h"
 
-@@ -1325,45 +1326,87 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
+@@ -1325,45 +1326,89 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
  static void __init clk_disable_unused_subtree(struct clk_core *core)
  {
 -	struct clk_core *child;
@@ -122,7 +122,8 @@ index ba7d28d852a7..56bba2f566ae 100644
 +			     strcmp(core->name, "tim15_k") &&
 +			     strcmp(core->name, "bkpsram") &&
 +			     strcmp(core->name, "mdma") &&
-+			     strcmp(core->name, "eth1tx")))
++			     strcmp(core->name, "eth1tx") &&
++			     strcmp(core->name, "eth1rx")))
 +				core->ops->disable_unused(core->hw);
 +		} else if (core->ops->disable) {
 +			pr_err("clk_disable_unused trace: %s\n", core->name);
@@ -132,7 +133,8 @@ index ba7d28d852a7..56bba2f566ae 100644
 +			     strcmp(core->name, "tim15_k") &&
 +			     strcmp(core->name, "bkpsram") &&
 +			     strcmp(core->name, "mdma") &&
-+			     strcmp(core->name, "eth1tx")))
++			     strcmp(core->name, "eth1tx") &&
++			     strcmp(core->name, "eth1rx")))
 +				core->ops->disable(core->hw);
 +		}
 +		trace_clk_disable_complete(core);
