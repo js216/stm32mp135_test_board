@@ -22,7 +22,7 @@ index ba7d28d852a7..56bba2f566ae 100644
 
  #include "clk.h"
 
-@@ -1325,45 +1326,79 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
+@@ -1325,45 +1326,87 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
  static void __init clk_disable_unused_subtree(struct clk_core *core)
  {
 -	struct clk_core *child;
@@ -71,6 +71,7 @@ index ba7d28d852a7..56bba2f566ae 100644
 +	unsigned long flags;
 +	static bool post_bkpsram_next;
 +	static bool post_mdma_next;
++	static bool post_eth1tx_next;
 +
 +	lockdep_assert_held(&prepare_lock);
 +
@@ -82,6 +83,11 @@ index ba7d28d852a7..56bba2f566ae 100644
 +	if (post_mdma_next) {
 +		pr_err("clk_disable_unused post-mdma next: %s\n", core->name);
 +		post_mdma_next = false;
++	}
++	if (post_eth1tx_next) {
++		pr_err("clk_disable_unused post-eth1tx next: %s\n",
++		       core->name);
++		post_eth1tx_next = false;
 +	}
 +
 +	hlist_for_each_entry(child, &core->children, child_node)
@@ -140,6 +146,8 @@ index ba7d28d852a7..56bba2f566ae 100644
 +		post_bkpsram_next = true;
 +	if (core->name && !strcmp(core->name, "mdma"))
 +		post_mdma_next = true;
++	if (core->name && !strcmp(core->name, "eth1tx"))
++		post_eth1tx_next = true;
 +unprepare_out:
 +	if (core->flags & CLK_OPS_PARENT_ENABLE)
 +		clk_core_disable_unprepare(core->parent);
