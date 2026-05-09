@@ -46,6 +46,17 @@ sd:
 		--partition linux/arch/arm/boot/dts/$(DTS).dtb \
 		--partition buildroot/output/images/rootfs.ext2
 
+# Pack the V7-on-Armv7 image into the same MBR shape `two` expects:
+# bootloader as the unpartitioned LBA-128 file, then the unix kernel
+# and the V7 rootfs as MBR partitions for `two` to copy into DDR.
+sd-unix:
+	mkdir -p buildroot/output/images
+	python3 bootloader/scripts/sdimage.py \
+		buildroot/output/images/unix-sdcard.img \
+		bootloader/build/main.stm32 \
+		--partition ../unix-v7-c99/unix \
+		--partition ../unix-v7-c99/root.img
+
 nand:
 	python3 bootloader/scripts/nandimage.py \
 		buildroot/output/images/nand.img \
