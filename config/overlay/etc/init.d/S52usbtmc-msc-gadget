@@ -34,6 +34,10 @@ case "$1" in
         mkdir -p "$FUNCTION" || fail
         printf '1\n' > "$FUNCTION/lun.0/ro" || fail
         printf '%s\n' "$BACKING_FILE" > "$FUNCTION/lun.0/file" || fail
+
+        mkdir -p "$GADGET/configs/c.1" || fail
+        printf '0\n' > "$GADGET/configs/c.1/MaxPower" || fail
+        ln -sf "$FUNCTION" "$GADGET/configs/c.1/mass_storage.usbtmc" || fail
         ;;
 esac
 
