@@ -22,7 +22,7 @@ index ba7d28d852a7..56bba2f566ae 100644
 
  #include "clk.h"
 
-@@ -1325,45 +1326,68 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
+@@ -1325,45 +1326,70 @@ static void __init clk_disable_unused_subtree(struct clk_core *core)
  static void __init clk_disable_unused_subtree(struct clk_core *core)
  {
 -	struct clk_core *child;
@@ -109,7 +109,8 @@ index ba7d28d852a7..56bba2f566ae 100644
 +			    (strcmp(core->name, "i2c4_k") &&
 +			     strcmp(core->name, "stgen_k") &&
 +			     strcmp(core->name, "tim15_k") &&
-+			     strcmp(core->name, "bkpsram")))
++			     strcmp(core->name, "bkpsram") &&
++			     strcmp(core->name, "mdma")))
 +				core->ops->disable_unused(core->hw);
 +		} else if (core->ops->disable) {
 +			pr_err("clk_disable_unused trace: %s\n", core->name);
@@ -117,18 +118,19 @@ index ba7d28d852a7..56bba2f566ae 100644
 +			    (strcmp(core->name, "i2c4_k") &&
 +			     strcmp(core->name, "stgen_k") &&
 +			     strcmp(core->name, "tim15_k") &&
-+			     strcmp(core->name, "bkpsram")))
++			     strcmp(core->name, "bkpsram") &&
++			     strcmp(core->name, "mdma")))
 +				core->ops->disable(core->hw);
 +		}
-+		pr_err("clk_disable_unused after: %s\n", core->name);
-+		if (core->name && !strcmp(core->name, "bkpsram"))
-+			post_bkpsram_next = true;
 +		trace_clk_disable_complete(core);
 +	}
 +
 +unlock_out:
 +	clk_enable_unlock(flags);
 +	clk_pm_runtime_put(core);
++	pr_err("clk_disable_unused after: %s\n", core->name);
++	if (core->name && !strcmp(core->name, "bkpsram"))
++		post_bkpsram_next = true;
 +unprepare_out:
 +	if (core->flags & CLK_OPS_PARENT_ENABLE)
 +		clk_core_disable_unprepare(core->parent);
