@@ -38,6 +38,10 @@ case "$1" in
         mkdir -p "$GADGET/configs/c.1" || fail
         printf '0\n' > "$GADGET/configs/c.1/MaxPower" || fail
         ln -sf "$FUNCTION" "$GADGET/configs/c.1/mass_storage.usbtmc" || fail
+
+        udc=$(ls /sys/class/udc 2>/dev/null | head -n 1) || fail
+        test -n "$udc" || fail
+        printf '%s' "$udc" > "$GADGET/UDC" || fail
         ;;
 esac
 
