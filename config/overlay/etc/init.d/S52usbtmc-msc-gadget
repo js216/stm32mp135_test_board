@@ -5,6 +5,8 @@
 
 GADGET=/sys/kernel/config/usb_gadget/usbtmc
 STRINGS=$GADGET/strings/0x409
+FUNCTION=$GADGET/functions/mass_storage.usbtmc
+BACKING_FILE=/var/lib/usbtmc/msc-backing.bin
 
 fail()
 {
@@ -27,6 +29,11 @@ case "$1" in
         printf 'Stanford Research Systems\n' > "$STRINGS/manufacturer" || fail
         printf 'STM32MP135 EVB Linux MSC\n' > "$STRINGS/product" || fail
         printf 'evb-linux-msc-0001\n' > "$STRINGS/serialnumber" || fail
+
+        test -f "$BACKING_FILE" || fail
+        mkdir -p "$FUNCTION" || fail
+        printf '1\n' > "$FUNCTION/lun.0/ro" || fail
+        printf '%s\n' "$BACKING_FILE" > "$FUNCTION/lun.0/file" || fail
         ;;
 esac
 
