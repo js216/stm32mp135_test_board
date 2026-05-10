@@ -1,7 +1,16 @@
+# SPDX-License-Identifier: MIT
+# /etc/network/interfaces --- static IP setup for both bench boards
+# Copyright (c) 2026 Jakob Kastelic
+
 # loopback interface
 auto lo
 iface lo inet loopback
 
-# ethernet interface
+# ethernet interface (static; same image flashed to both boards, both
+# bench IPs configured so SSH to either ssh.custom or ssh.target reaches
+# whichever board is currently powered on)
 auto eth0
-iface eth0 inet dhcp
+iface eth0 inet static
+    address 172.25.0.140
+    netmask 255.255.255.0
+    post-up ip addr add 172.25.0.115/24 dev eth0

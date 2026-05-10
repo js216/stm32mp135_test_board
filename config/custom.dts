@@ -1890,7 +1890,8 @@
 				phy-mode = "rmii";
 				max-speed = <100>;
 				phy-handle = <&phy0_eth1>;
-				mac-address = [00 19 B3 12 12 34];
+				nvmem-cells = <&ethernet_mac1_address>;
+				nvmem-cell-names = "mac-address";
 				snps,en-tx-lpi-clockgating;
 				st,ext-phyclk;
 
