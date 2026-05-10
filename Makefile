@@ -69,6 +69,25 @@ sd: dtb
 		--partition linux/arch/arm/boot/dts/st/$(DTS).dtb \
 		--partition buildroot/output/images/rootfs.ext2
 
+# Pack the V7-on-Armv7 image into the same MBR shape `two` expects:
+# bootloader as the unpartitioned LBA-128 file, then the unix kernel
+# and the V7 rootfs as MBR partitions for `two` to copy into DDR.
+sd-unix:
+	mkdir -p buildroot/output/images
+	# sdimage.py places the first three positional files at LBAs
+	# 128 / 640 / 896. The bench bootloader's `two` command default
+	# expects kernel at SD block 896 and DTB at 640, so we slot the
+	# unix kernel into the 896 position with an empty placeholder
+	# at 640. The V7 fs is emitted as the trailing MBR partition
+	# for bench-side `mbr_load` workflows.
+	: > buildroot/output/images/.dtb_placeholder
+	python3 bootloader/scripts/sdimage.py \
+		buildroot/output/images/unix-sdcard.img \
+		bootloader/build/main.stm32 \
+		buildroot/output/images/.dtb_placeholder \
+		../unix-v7-c99/unix \
+		--partition ../unix-v7-c99/root.img
+
 nand:
 	python3 bootloader/scripts/nandimage.py \
 		buildroot/output/images/nand.img \
