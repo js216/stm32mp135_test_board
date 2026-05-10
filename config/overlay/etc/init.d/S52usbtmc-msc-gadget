@@ -1,0 +1,48 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jakob Kastelic
+# Create the descriptor-only USBTMC MSC configfs gadget.
+
+GADGET=/sys/kernel/config/usb_gadget/usbtmc
+STRINGS=$GADGET/strings/0x409
+FUNCTION=$GADGET/functions/mass_storage.usbtmc
+BACKING_FILE=/var/lib/usbtmc/msc-backing.bin
+
+fail()
+{
+    exit 1
+}
+
+case "$1" in
+    start)
+        test -d /sys/kernel/config/usb_gadget || fail
+        mkdir -p "$GADGET" "$STRINGS" || fail
+
+        printf '0x0483\n' > "$GADGET/idVendor" || fail
+        printf '0x571e\n' > "$GADGET/idProduct" || fail
+        printf '0x0100\n' > "$GADGET/bcdDevice" || fail
+        printf '0x0200\n' > "$GADGET/bcdUSB" || fail
+        printf '0x00\n' > "$GADGET/bDeviceClass" || fail
+        printf '0x00\n' > "$GADGET/bDeviceSubClass" || fail
+        printf '0x00\n' > "$GADGET/bDeviceProtocol" || fail
+
+        printf 'Stanford Research Systems\n' > "$STRINGS/manufacturer" || fail
+        printf 'STM32MP135 EVB Linux MSC\n' > "$STRINGS/product" || fail
+        printf 'evb-linux-msc-0001\n' > "$STRINGS/serialnumber" || fail
+
+        test -f "$BACKING_FILE" || fail
+        mkdir -p "$FUNCTION" || fail
+        printf '1\n' > "$FUNCTION/lun.0/ro" || fail
+        printf '%s\n' "$BACKING_FILE" > "$FUNCTION/lun.0/file" || fail
+
+        mkdir -p "$GADGET/configs/c.1" || fail
+        printf '0\n' > "$GADGET/configs/c.1/MaxPower" || fail
+        ln -sf "$FUNCTION" "$GADGET/configs/c.1/mass_storage.usbtmc" || fail
+
+        udc=$(ls /sys/class/udc 2>/dev/null | head -n 1) || fail
+        test -n "$udc" || fail
+        printf '%s' "$udc" > "$GADGET/UDC" || fail
+        ;;
+esac
+
+exit 0
