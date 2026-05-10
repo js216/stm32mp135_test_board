@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Jakob Kastelic
-// main.c --- minimal MP135 PRBS skeleton (LFSR step + XOR checksum).
+// main.c --- MP135 PRBS skeleton with UART ready banner.
 #include <stdint.h>
+
+#include "console.h"
+#include "printf.h"
+#include "setup.h"
+#include "stm32mp13xx_hal.h"
 
 #define PRBS_POLY 0x80200003u
 #define PRBS_SEED 0x00000001u
+#define PRBS_BURST_WORDS 65536u
 
 typedef struct {
    uint32_t state;
@@ -26,8 +32,58 @@ static inline void prbs_step_with_checksum(prbs_state_t *s)
    s->checksum ^= prev;
 }
 
-void main(void)
+static void prbs_test_print_hex32(uint32_t value)
 {
+   static const char hex[] = "0123456789abcdef";
+
+   for (int shift = 28; shift >= 0; shift -= 4) {
+      my_printf("%c", hex[(value >> shift) & 0xfu]);
+   }
+   my_printf("\r\n");
+}
+
+static void prbs_test_handle_command(volatile prbs_state_t *s, char command)
+{
+   switch (command) {
+   case 'r':
+      s->state = PRBS_SEED;
+      s->checksum = 0;
+      my_printf("prbs reset\r\n");
+      break;
+   case 's':
+      prbs_step_with_checksum((prbs_state_t *)s);
+      my_printf("prbs step\r\n");
+      break;
+   case 'b':
+      for (uint32_t i = 0; i < PRBS_BURST_WORDS; ++i) {
+         prbs_step_with_checksum((prbs_state_t *)s);
+      }
+      my_printf("prbs burst\r\n");
+      break;
+   case 'p':
+      prbs_test_print_hex32(s->checksum);
+      break;
+   default:
+      break;
+   }
+}
+
+static void prbs_test_poll_commands(volatile prbs_state_t *s)
+{
+   while (!console_rx_empty()) {
+      prbs_test_handle_command(s, console_rx_get());
+   }
+}
+
+int main(void)
+{
+   HAL_Init();
+   sysclk_init();
+   perclk_init();
+   uart4_init();
+
+   my_printf("prbs_test ready\r\n");
+
    volatile uint32_t state = PRBS_SEED;
    state = prbs_step(state);
    (void)state;
@@ -37,7 +93,10 @@ void main(void)
    prbs_step_with_checksum((prbs_state_t *)&pstate);
    (void)pstate.checksum;
    while (1) {
+      prbs_test_poll_commands(&pstate);
    }
+
+   return 0;
 }
 
 // end file main.c

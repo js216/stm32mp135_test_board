@@ -46,6 +46,21 @@ static const mpu_gpio_signal_t mpu_drive_signals[] = {
     {"mpu_qspi_ncs_to_fpga_cs_n", QSPI_NCS_PORT, QSPI_NCS_PIN},
 };
 
+/* TODO(gpio_test mpu pin choice): The three control jumpers
+ *   - mpu_reset_output_to_fpga_reset_n
+ *   - mpu_control_output_to_fpga_ctrl_start
+ *   - fpga_ready_status_to_mpu_status_input
+ * have replay header entries (auto-generated from
+ * connectivity_manifest.json) but no MPU GPIO port/pin yet.
+ * mpu_drive() and mpu_sample_expect() therefore silently no-op for
+ * those signals (find_mpu_drive_signal / find_mpu_sample_signal
+ * return NULL and the helpers return success without touching
+ * hardware). The next firmware lift selects MP135 GPIO pins for
+ * those three signals, defines RESET_N / CTRL_START / STATUS_INPUT
+ * port and pin macros (mirroring QSPI_NCS_PORT / QSPI_NCS_PIN), and
+ * extends mpu_drive_signals[] / mpu_sample_signals[] accordingly.
+ */
+
 static const mpu_gpio_signal_t mpu_sclk_drive_signal = {
     "mpu_qspi_clk_to_fpga_sclk", QSPI_CLK_PORT, QSPI_CLK_PIN
 };

@@ -239,7 +239,7 @@
     {
       "signal": "mpu_reset_output_to_fpga_reset_n",
       "mpu_signal_pin": "MP135 GPIO reset output, exact MPU pin TBD",
-      "fpga_signal_pin": "FPGA reset_n, exact FPGA pin TBD",
+      "fpga_signal_pin": "FPGA reset_n on pins[0], iCEstick pin 112",
       "direction": "MPU -> FPGA",
       "voltage_domain": "Assumed 3.3 V LVCMOS control GPIO",
       "mpu_role": "drive",
@@ -248,7 +248,7 @@
     {
       "signal": "mpu_control_output_to_fpga_ctrl_start",
       "mpu_signal_pin": "MP135 GPIO control output, exact MPU pin TBD",
-      "fpga_signal_pin": "FPGA ctrl/start, exact FPGA pin TBD",
+      "fpga_signal_pin": "FPGA ctrl/start on pins[1], iCEstick pin 113",
       "direction": "MPU -> FPGA",
       "voltage_domain": "Assumed 3.3 V LVCMOS control GPIO",
       "mpu_role": "drive",
@@ -257,7 +257,7 @@
     {
       "signal": "fpga_ready_status_to_mpu_status_input",
       "mpu_signal_pin": "MP135 GPIO status input, exact MPU pin TBD",
-      "fpga_signal_pin": "FPGA ready/status, exact FPGA pin TBD",
+      "fpga_signal_pin": "FPGA ready/status on pins[2], iCEstick pin 114",
       "direction": "FPGA -> MPU",
       "voltage_domain": "Assumed 3.3 V LVCMOS control GPIO",
       "mpu_role": "sample",
