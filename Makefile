@@ -69,23 +69,28 @@ sd: dtb
 		--partition linux/arch/arm/boot/dts/st/$(DTS).dtb \
 		--partition buildroot/output/images/rootfs.ext2
 
-# Pack the V7-on-Armv7 image into the same MBR shape `two` expects:
-# bootloader as the unpartitioned LBA-128 file, then the unix kernel
-# and the V7 rootfs as MBR partitions for `two` to copy into DDR.
+# Pack the V7-on-Armv7 image into the MBR shape `two` expects.  The
+# bootloader's `two` handler is sd_load_mbr(): it reads the MBR table
+# and copies partition[0] to DEF_LINUX_ADDR (0xC2000000), partition[1]
+# to DEF_DTB_ADDR (0xC4000000).  So the unix kernel must be the FIRST
+# MBR partition, not a positional LBA-896 file.  It also has to be a
+# flat binary -- objcopy strips the ELF wrapper so a `jump 0xC2000000`
+# lands on .text rather than the ELF header.  Partition[1] is a 1KB
+# placeholder so sd_load_mbr's second sd_read writes harmless filler
+# to DDR; partition[2] is the V7 rootfs, kept on-card for the (future)
+# v7 SD block driver to mount.
 sd-unix:
 	mkdir -p buildroot/output/images
-	# sdimage.py places the first three positional files at LBAs
-	# 128 / 640 / 896. The bench bootloader's `two` command default
-	# expects kernel at SD block 896 and DTB at 640, so we slot the
-	# unix kernel into the 896 position with an empty placeholder
-	# at 640. The V7 fs is emitted as the trailing MBR partition
-	# for bench-side `mbr_load` workflows.
-	: > buildroot/output/images/.dtb_placeholder
+	arm-none-eabi-objcopy -O binary \
+		../unix-v7-c99/unix \
+		buildroot/output/images/unix.bin
+	dd if=/dev/zero of=buildroot/output/images/.dtb_placeholder \
+		bs=512 count=2 status=none
 	python3 bootloader/scripts/sdimage.py \
 		buildroot/output/images/unix-sdcard.img \
 		bootloader/build/main.stm32 \
-		buildroot/output/images/.dtb_placeholder \
-		../unix-v7-c99/unix \
+		--partition buildroot/output/images/unix.bin \
+		--partition buildroot/output/images/.dtb_placeholder \
 		--partition ../unix-v7-c99/root.img
 
 nand:
