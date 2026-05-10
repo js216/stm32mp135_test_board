@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# config/patch.clock --- clock-driver overlay for v6.6 kernel
+# Copyright (c) 2026 Jakob Kastelic
+#
+# Intentionally empty: the v6.6 clock customisations previously kept
+# here are now in config/patch.linux on this branch (carried by the
+# parallel kernel-clock-bringup mission). Kept as a no-op so the
+# Makefile's clock: target applies cleanly.
