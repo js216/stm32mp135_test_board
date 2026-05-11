@@ -84,6 +84,13 @@ sd-unix:
 	arm-none-eabi-objcopy -O binary \
 		../unix-v7-c99/unix \
 		buildroot/output/images/unix.bin
+	# Pad unix.bin to a fixed 64 KiB so root.img's MBR LBA stays
+	# stable across kernel-size changes -- the EVB test plans hard-
+	# code the LBA byte-by-byte over UART, and a one-block shift in
+	# the kernel partition desyncs every section.  128 blocks of slack
+	# above the current ~56-block kernel is plenty for the v7-real-
+	# kernel mission's gradual link-in of sys/*.c.
+	truncate -s 65536 buildroot/output/images/unix.bin
 	dd if=/dev/zero of=buildroot/output/images/.dtb_placeholder \
 		bs=512 count=2 status=none
 	python3 bootloader/scripts/sdimage.py \
