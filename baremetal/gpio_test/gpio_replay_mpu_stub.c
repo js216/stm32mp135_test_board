@@ -50,8 +50,7 @@ static const mpu_gpio_signal_t mpu_drive_signals[] = {
  *   - mpu_reset_output_to_fpga_reset_n
  *   - mpu_control_output_to_fpga_ctrl_start
  *   - fpga_ready_status_to_mpu_status_input
- * have replay header entries (auto-generated from
- * connectivity_manifest.json) but no MPU GPIO port/pin yet.
+ * have replay header entries but no MPU GPIO port/pin yet.
  * mpu_drive() and mpu_sample_expect() therefore silently no-op for
  * those signals (find_mpu_drive_signal / find_mpu_sample_signal
  * return NULL and the helpers return success without touching
