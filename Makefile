@@ -37,7 +37,6 @@ kernel:
 	cp config/linux.conf linux/.config
 	$(MAKE) -C linux $(LO) olddefconfig
 	$(MAKE) -C linux $(LO) -j$(shell nproc) zImage
-	truncate -s +500K linux/arch/arm/boot/zImage
 
 dtb:
 	cp config/$(DTS).dts linux/arch/arm/boot/dts/

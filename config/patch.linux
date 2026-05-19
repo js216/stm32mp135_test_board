@@ -1180,3 +1180,16 @@ index ff397c5eba5a..1d3b8c596189 100644
  	.enable_reg = BST_SW_CR, \
  	.enable_mask = SWIN_SWOUT_ENABLED, \
  	.enable_val = SWIN_SWOUT_ENABLED, \
+diff --git a/drivers/mtd/nand/raw/stm32_fmc2_nand.c b/drivers/mtd/nand/raw/stm32_fmc2_nand.c
+--- a/drivers/mtd/nand/raw/stm32_fmc2_nand.c
++++ b/drivers/mtd/nand/raw/stm32_fmc2_nand.c
+@@ -1080,6 +1080,9 @@ static int stm32_fmc2_nfc_seq_correct(struct nand_chip *chip, u8 *dat,
+ 		}
+ 	}
+ 
++	if (max_bitflips)
++		dev_warn(nfc->dev, "bitflip corrected: %u\n", max_bitflips);
++
+ 	return max_bitflips;
+ }
+ 
