@@ -1783,7 +1783,11 @@
 							partition@80000 {
 							    label = "ptable";
 							    reg = <0x00080000 0x00040000>; /* block 2 */
-							    read-only;
+							    /* Writable so the hardened-PT mission step
+							     * can flash_erase + nandwrite the primary
+							     * PT block; the bootloader recovers from
+							     * the on-flash mirror at block
+							     * NAND_BLOCK_PT_MIRROR. */
 							};
 							partition@c0000 {
 							    label = "dtb";
@@ -1791,11 +1795,11 @@
 							};
 							partition@100000 {
 							    label = "kernel";
-							    reg = <0x00100000 0x01000000>; /* blocks 4-67, 16 MB */
+							    reg = <0x00100000 0x03200000>; /* blocks 4-203, 50 MB */
 							};
-							partition@1100000 {
+							partition@3300000 {
 							    label = "rootfs";
-							    reg = <0x01100000 0x1ef00000>; /* block 68 to end, ~495 MB */
+							    reg = <0x03300000 0x1cd00000>; /* block 204 to end, ~461 MB */
 							};
 						};
 					};

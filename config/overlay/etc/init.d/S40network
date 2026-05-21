@@ -99,21 +99,15 @@ start_network()
 		return $?
 	fi
 
-	/sbin/ifup -a &
-	pid="$!"
-	deadline="$(($(date +%s) + IFUP_TIMEOUT_S))"
-
-	while kill -0 "$pid" 2>/dev/null; do
-		if [ "$(date +%s)" -ge "$deadline" ]; then
-			printf "timeout waiting for ifup "
-			kill "$pid" 2>/dev/null
-			wait "$pid" 2>/dev/null
-			return 1
-		fi
-		sleep 1
-	done
-
-	wait "$pid"
+	# Run ifup fully detached so DHCP (udhcpc) cannot block boot.
+	# The bench tests do not require networking to be up before the
+	# login prompt, and the slow synchronous wait here was pushing
+	# `buildroot login:` past the mission's blind-delay window after
+	# `jump\r`. Output is redirected to /var/log so a curious operator
+	# can still inspect ifup's progress post-boot.
+	mkdir -p /var/log
+	(/sbin/ifup -a >/var/log/ifup.log 2>&1) &
+	return 0
 }
 
 case "$1" in
