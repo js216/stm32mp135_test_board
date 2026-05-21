@@ -31,21 +31,37 @@
 #define CCR_DMODE_Pos       24U
 #define CCR_FMODE_Pos       26U
 
+#ifndef QSPI_FTHRES
+#define QSPI_FTHRES 15U
+#endif
+
 static int initialised;
 static uint32_t cur_prescaler;
 static uint32_t cur_fsize;
 static uint32_t cur_csht;
+static uint32_t cur_fthres = QSPI_FTHRES;
 static uint32_t cur_dlyb_sel;
 static uint32_t cur_dlyb_unit;
 static uint32_t mdma_active_dst;
 static uint32_t mdma_active_len;
 static bool mdma_active;
+static bool qspi_io_comp_tried;
 
 uint32_t qspi_get_prescaler(void) { return cur_prescaler; }
 uint32_t qspi_get_fsize(void)     { return cur_fsize; }
 uint32_t qspi_get_csht(void)      { return cur_csht; }
+uint32_t qspi_get_fthres(void)    { return cur_fthres; }
 
 HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit);
+HAL_StatusTypeDef qspi_set_fthres(uint32_t fthres);
+
+static void qspi_apply_fthres(uint32_t fthres)
+{
+   uint32_t cr = QUADSPI->CR;
+   cr &= ~QUADSPI_CR_FTHRES_Msk;
+   cr |= (fthres << QUADSPI_CR_FTHRES_Pos);
+   QUADSPI->CR = cr;
+}
 
 HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit)
 {
@@ -53,6 +69,19 @@ HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit)
       return HAL_ERROR;
    cur_dlyb_sel  = sel;
    cur_dlyb_unit = sel ? unit : 0U;
+   return HAL_OK;
+}
+
+HAL_StatusTypeDef qspi_set_fthres(uint32_t fthres)
+{
+   if (fthres > 15U)
+      return HAL_ERROR;
+   if (initialised && qspi_busy())
+      return HAL_BUSY;
+
+   cur_fthres = fthres;
+   if (initialised)
+      qspi_apply_fthres(cur_fthres);
    return HAL_OK;
 }
 
@@ -66,30 +95,128 @@ static uint32_t lines_to_mode(qspi_lines_t l)
    }
 }
 
-static void bench_consume_byte(uint8_t b, uint32_t i, uint32_t *crc_io,
+static bool raw_quad_uses_frame(bool raw, qspi_lines_t data_lines)
+{
+   return raw && data_lines == QSPI_LINES_4;
+}
+
+static void qspi_log_raw_regs(const char *tag, uint32_t len, bool raw,
+                              qspi_lines_t data_lines, bool framed_raw)
+{
+   if (!raw || len > 4096U)
+      return;
+
+   const uint32_t ccr = QUADSPI->CCR;
+   const uint32_t cr  = QUADSPI->CR;
+   my_printf("qspi_rawcfg %s len=%lu lines=%lu frame=%s "
+             "cr=%08lx dcr=%08lx sr=%08lx ccr=%08lx ar=%08lx "
+             "abr=%08lx dlr=%08lx imode=%lu admode=%lu adsize=%lu "
+             "abmode=%lu absize=%lu dcyc=%lu dmode=%lu fmode=%lu "
+             "sioo=%lu ddr=%lu fthres=%lu flevel=%lu tcr=NA\r\n",
+             tag,
+             (unsigned long)len,
+             (unsigned long)data_lines,
+             framed_raw ? "6b" : "data",
+             (unsigned long)cr,
+             (unsigned long)QUADSPI->DCR,
+             (unsigned long)QUADSPI->SR,
+             (unsigned long)ccr,
+             (unsigned long)QUADSPI->AR,
+             (unsigned long)QUADSPI->ABR,
+             (unsigned long)QUADSPI->DLR,
+             (unsigned long)((ccr >> CCR_IMODE_Pos) & 0x3U),
+             (unsigned long)((ccr >> CCR_ADMODE_Pos) & 0x3U),
+             (unsigned long)((ccr >> CCR_ADSIZE_Pos) & 0x3U),
+             (unsigned long)((ccr >> CCR_ABMODE_Pos) & 0x3U),
+             (unsigned long)((ccr >> CCR_ABSIZE_Pos) & 0x3U),
+             (unsigned long)((ccr >> CCR_DCYC_Pos) & 0x1FU),
+             (unsigned long)((ccr >> CCR_DMODE_Pos) & 0x3U),
+             (unsigned long)((ccr >> CCR_FMODE_Pos) & 0x3U),
+             (unsigned long)((ccr >> QUADSPI_CCR_SIOO_Pos) & 0x1U),
+             (unsigned long)((ccr >> QUADSPI_CCR_DDRM_Pos) & 0x1U),
+             (unsigned long)((cr >> QUADSPI_CR_FTHRES_Pos) & 0x0FU),
+             (unsigned long)((QUADSPI->SR & QUADSPI_SR_FLEVEL_Msk) >>
+                             QUADSPI_SR_FLEVEL_Pos));
+}
+
+static void bench_consume_byte(uint8_t b, uint32_t i,
+                               uint32_t *crc_io,
                                uint32_t *first_err_io, uint8_t got16[16])
 {
    uint32_t crc = *crc_io;
+   const uint8_t exp = (uint8_t)(i & 0xFFU);
+
    if (i < 16U)
       got16[i] = b;
    crc ^= (uint32_t)b;
    for (int j = 0; j < 8; j++)
       crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
-   if (b != (uint8_t)(i & 0xFFU) && *first_err_io == 0xFFFFFFFFUL)
+   if (b != exp && *first_err_io == 0xFFFFFFFFUL)
       *first_err_io = i;
    *crc_io = crc;
 }
 
-static void setupgpio(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
+static void setupgpio_ex(GPIO_TypeDef *port, uint32_t pin, uint32_t af,
+                         uint32_t speed, uint32_t pull)
 {
    GPIO_InitTypeDef g = {
        .Pin       = pin,
        .Mode      = GPIO_MODE_AF_PP,
-       .Pull      = GPIO_NOPULL,
-       .Speed     = GPIO_SPEED_FREQ_VERY_HIGH,
+       .Pull      = pull,
+       .Speed     = speed,
        .Alternate = af,
    };
    HAL_GPIO_Init(port, &g);
+}
+
+static void setupgpio(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
+{
+   setupgpio_ex(port, pin, af, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_NOPULL);
+}
+
+static void setupgpio_data(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
+{
+   setupgpio_ex(port, pin, af, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_NOPULL);
+}
+
+static void qspi_raw_frame_reset_gap(bool raw)
+{
+   if (!raw)
+      return;
+
+   qspi_abort();
+   HAL_Delay(1U);
+}
+
+static void setup_qspi_io_timing(void)
+{
+   if (qspi_io_comp_tried)
+      return;
+
+   qspi_io_comp_tried = true;
+   __HAL_RCC_SYSCFG_CLK_ENABLE();
+   (void)HAL_SYSCFG_EnableIOCompensation(SYSCFG_MAIN_COMP_CELL);
+}
+
+static void release_board_qspi_conflicts(void)
+{
+   GPIO_InitTypeDef g = {
+      .Pin   = CTP_RST_PIN,
+      .Mode  = GPIO_MODE_OUTPUT_PP,
+      .Pull  = GPIO_NOPULL,
+      .Speed = GPIO_SPEED_FREQ_LOW,
+   };
+
+   /* EVB QSPI_NCS/IO2 share the touch-panel I2C5 SCL/SDA nets. Keep the
+    * touch controller reset while QSPI owns those pads so PH6 is only
+    * the raw-data input path during the high-speed quad phase. */
+   HAL_GPIO_WritePin(CTP_RST_PORT, CTP_RST_PIN, GPIO_PIN_RESET);
+   HAL_GPIO_Init(CTP_RST_PORT, &g);
+
+   __HAL_RCC_I2C5_CLK_ENABLE();
+   __HAL_RCC_I2C5_FORCE_RESET();
+   __HAL_RCC_I2C5_RELEASE_RESET();
+   __HAL_RCC_I2C5_CLK_DISABLE();
 }
 
 static void setup_dlyb(void)
@@ -132,6 +259,8 @@ void qspi_abort(void)
    }
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
+   if (initialised)
+      qspi_apply_fthres(cur_fthres);
 }
 
 HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
@@ -147,6 +276,9 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
    __HAL_RCC_GPIOF_CLK_ENABLE();
    __HAL_RCC_GPIOH_CLK_ENABLE();
 
+   release_board_qspi_conflicts();
+   setup_qspi_io_timing();
+
    __HAL_RCC_QSPI_CLK_ENABLE();
    __HAL_RCC_QSPI_FORCE_RESET();
    __HAL_RCC_QSPI_RELEASE_RESET();
@@ -154,10 +286,10 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
 
    setupgpio(QSPI_CLK_PORT, QSPI_CLK_PIN, QSPI_CLK_AF);
    setupgpio(QSPI_NCS_PORT, QSPI_NCS_PIN, QSPI_NCS_AF);
-   setupgpio(QSPI_IO0_PORT, QSPI_IO0_PIN, QSPI_IO0_AF);
-   setupgpio(QSPI_IO1_PORT, QSPI_IO1_PIN, QSPI_IO1_AF);
-   setupgpio(QSPI_IO2_PORT, QSPI_IO2_PIN, QSPI_IO2_AF);
-   setupgpio(QSPI_IO3_PORT, QSPI_IO3_PIN, QSPI_IO3_AF);
+   setupgpio_data(QSPI_IO0_PORT, QSPI_IO0_PIN, QSPI_IO0_AF);
+   setupgpio_data(QSPI_IO1_PORT, QSPI_IO1_PIN, QSPI_IO1_AF);
+   setupgpio_data(QSPI_IO2_PORT, QSPI_IO2_PIN, QSPI_IO2_AF);
+   setupgpio_data(QSPI_IO3_PORT, QSPI_IO3_PIN, QSPI_IO3_AF);
 
    QUADSPI->CR &= ~QUADSPI_CR_EN;
 
@@ -166,10 +298,7 @@ HAL_StatusTypeDef qspi_init(uint32_t prescaler, uint32_t fsize_log2,
       cr |= QUADSPI_CR_SSHIFT;
    if (dual_flash)
       cr |= QUADSPI_CR_DFM;
-#ifndef QSPI_FTHRES
-#define QSPI_FTHRES 15U
-#endif
-   cr |= ((QSPI_FTHRES) << QUADSPI_CR_FTHRES_Pos);
+   cr |= (cur_fthres << QUADSPI_CR_FTHRES_Pos);
    QUADSPI->CR = cr;
 
    QUADSPI->DCR = ((fsize_log2 & 0x1FU) << QUADSPI_DCR_FSIZE_Pos) |
@@ -391,6 +520,10 @@ HAL_StatusTypeDef qspi_mm_enable(const qspi_cmd_t *cmd)
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
    QUADSPI->ABR = cmd->alt_bytes;
+   /* Keep every memory-mapped microframe self-contained.  The AHB bridge can
+    * split one logical stream into multiple short CS-low transactions; SIOO
+    * would omit the instruction phase after the first one, shortening later
+    * frames by 8 SCLKs and desynchronizing simple FPGA stream responders. */
    QUADSPI->CCR = build_ccr(cmd, QSPI_FMODE_MEMMAPPED);
    return HAL_OK;
 }
@@ -463,31 +596,36 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
              (unsigned)data_lines, (unsigned)dummy_cycles,
              (unsigned long)len);
 
-   const uint32_t deadline = HAL_GetTick() + 600000U;
+   const uint32_t timeout_ms = (len <= 4096U) ? 2000U : 60000U;
+   const uint32_t deadline = HAL_GetTick() + timeout_ms;
    while (QUADSPI->SR & QUADSPI_SR_BUSY) {
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
          qspi_abort();
          return HAL_TIMEOUT;
       }
    }
+   qspi_abort();
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
+   qspi_raw_frame_reset_gap(raw);
    QUADSPI->DLR = len - 1U;
    QUADSPI->ABR = 0;
 
    uint32_t ccr = 0;
-   if (!raw) {
+   const bool framed_raw = raw_quad_uses_frame(raw, data_lines);
+   if (!raw || framed_raw) {
       ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
       ccr |= 1U << CCR_IMODE_Pos;         /* opcode 1-lane */
       ccr |= 1U << CCR_ADMODE_Pos;        /* address 1-lane */
       ccr |= (3U - 1U) << CCR_ADSIZE_Pos; /* 3-byte address */
    }
-   /* raw=true -> IMODE=0 + ADMODE=0: data phase only on the wire. */
+   /* Raw streams keep IMODE=0 + ADMODE=0 and validate the received data
+    * bytes directly. */
    ccr |= lines_to_mode(data_lines) << CCR_DMODE_Pos;
    ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
    ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
    QUADSPI->CCR = ccr;
-   if (!raw)
+   if (!raw || framed_raw)
       QUADSPI->AR = 0U;
 
    uint32_t crc                  = 0xFFFFFFFFUL;
@@ -562,6 +700,7 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
          return HAL_TIMEOUT;
       }
    }
+   qspi_log_raw_regs("bench", len, raw, data_lines, framed_raw);
 
    *crc_out        = crc ^ 0xFFFFFFFFUL;
    *first_err_out  = first_err;
@@ -589,7 +728,6 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
       return HAL_ERROR;
    if (mdma_active)
       return HAL_BUSY;
-
    /* Enable MDMA AHB6 clock.  Idempotent. */
    __HAL_RCC_MDMA_CLK_ENABLE();
 
@@ -604,9 +742,19 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    }
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
+   qspi_raw_frame_reset_gap(raw);
+
+   const bool quad_raw = raw && data_lines == QSPI_LINES_4;
+
    uint32_t cr = QUADSPI->CR;
    cr &= ~QUADSPI_CR_FTHRES_Msk;
-   cr |= ((data_lines == QSPI_LINES_4 ? 3U : 15U)
+   /* Word-aligned FTHRES=3 (4-byte threshold) for the 32-bit MDMA
+    * SSIZE=2 reads.  Earlier the raw_quad path used FTHRES=15 which
+    * caused nibble loss at the FIFO byte-boundary (FIFO entries are
+    * 32-bit; byte/word access width mismatch retires fewer bytes per
+    * pop than the FIFO holds).  FTHRES=3 keeps the trigger threshold
+    * matched to the MDMA beat width and avoids the misalignment. */
+   cr |= ((data_lines == QSPI_LINES_4 ? 3U : cur_fthres)
           << QUADSPI_CR_FTHRES_Pos);
    QUADSPI->CR = cr;
 
@@ -629,17 +777,18 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
       __asm volatile("dsb sy" ::: "memory");
    }
 
-   /* Number of bytes per buffer transfer. Choose 64 B = 16 beats of
-    * 32-bit (matches AXI/AHB max burst length on this CPU bus).  TLEN
-    * field is "bytes-1".  Override with -DMDMA_TLEN=<N> to probe the
-    * per-buffer-vs-per-byte overhead model. */
+   /* Number of bytes per buffer transfer. Normal reads use 64 B = 16 beats
+    * of 32-bit (matches AXI/AHB max burst length on this CPU bus). Raw quad
+    * uses byte reads packed into 32-bit DDR writes; the software request is
+    * delayed until the first FIFO-ready indication so the initial MDMA reads
+    * cannot race ahead of the QSPI data phase. */
 #ifndef MDMA_TLEN
 #define MDMA_TLEN 64U
 #endif
 #ifndef MDMA_SBURST
 #define MDMA_SBURST 0U
 #endif
-   const uint32_t tlen = MDMA_TLEN;
+   const uint32_t tlen = quad_raw ? 64U : MDMA_TLEN;
    const uint32_t bndt = len; /* block size in bytes */
 
    /* Block-repeat path requires 64 KiB-multiple lengths for >0x1FFFF.
@@ -651,32 +800,36 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
     *   small (<=TLEN)        -> 0 (one buffer per request)
     *   medium (<=64 KiB)     -> 1 (one block per request)
     *   large (block-repeat)  -> 2 (one repeated block == entire xfer)
-    * Combined with SWRM=1, a single software trigger kicks the whole
-    * transfer; subsequent beats are paced by AHB stall when the QSPI
-    * FIFO is empty rather than by per-buffer FTF round-trips.  This
-    * mirrors mdma_mm_to_dst() in cli.c. */
+    * One software trigger drains the whole transfer. */
    uint32_t trgm;
-   if (len <= tlen)
+   if (len <= tlen) {
       trgm = 0U;
-   else if (len <= 65536U)
+   } else if (len <= 65536U) {
       trgm = 1U;
-   else
+   } else {
       trgm = 2U;
+   }
 
    /* CTCR:
     *   SINC = 0  (source address fixed, QUADSPI->DR)
     *   DINC = 2  (destination increments)
-    *   SSIZE = 2 (32-bit reads from FIFO)
-    *   DSIZE = 2 (32-bit writes to DDR)
-    *   DINCOS = 2 (destination advances by 32-bit words)
-    *   SBURST = 0 (single 32-bit read; QSPI FIFO is FTHRES=3 -> >=4 B)
-    *   DBURST = 4 (16-beat burst write to DDR)
+    *   SSIZE = 0 for raw quad, 2 otherwise
+    *   DSIZE = 2
+    *   DINCOS = 2
+    *   SBURST = 0 (single source read)
+    *   DBURST = 0 for raw quad, 4 otherwise
     *   TLEN  = tlen-1
-    *   PKE = 0, PAM = 0 (matched sizes)
-    *   TRGM = trgm (see above)
-    *   SWRM = 1 (software request -- one SWRQ drains the whole block)
-    *   BWM  = 1 (bufferable writes -- DDR is normal cacheable)
+    *   PKE = 1 for raw quad, 0 otherwise
+    *   TRGM = trgm
+    *   SWRM = 1
+    *   BWM  = 1
     */
+   /* Use 32-bit source reads of QSPI->DR for ALL paths.  Previous
+    * raw_quad used SSIZE=0 (byte) with PKE=1 (packing), which exposed
+    * a byte-boundary alignment issue inside QSPI->DR when the FIFO
+    * threshold trigger fired (corrupted last ~5 bytes of each 16-byte
+    * chunk).  Word-mode reads pop 4 bytes per access atomically and
+    * avoid that hazard. */
    const uint32_t ctcr =
        (0U  << MDMA_CTCR_SINC_Pos)   |
        (2U  << MDMA_CTCR_DINC_Pos)   |
@@ -686,7 +839,7 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
        (MDMA_SBURST << MDMA_CTCR_SBURST_Pos) |
        (4U  << MDMA_CTCR_DBURST_Pos) |
        ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
-       (trgm << MDMA_CTCR_TRGM_Pos)  |
+       (trgm << MDMA_CTCR_TRGM_Pos) |
        MDMA_CTCR_SWRM |
        MDMA_CTCR_BWM;
 
@@ -711,9 +864,8 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    ch->CTCR = ctcr;
    ch->CSAR = (uint32_t)&QUADSPI->DR;
    ch->CDAR = dst_addr;
-   /* CTBR.TSEL = 0x1A (QUADSPI FIFO threshold).  Unused in SWRM=1 mode
-    * (the channel is driven by software request, not the QSPI FTF
-    * line), but harmless to leave programmed.  SBUS/DBUS = 0 (AXI). */
+   /* CTBR.TSEL = 0x1A (QUADSPI FIFO threshold). SWRM paths ignore it.
+    * SBUS/DBUS = 0. */
    ch->CTBR = 0x1AU & MDMA_CTBR_TSEL_Msk;
    ch->CMAR = 0U;
    ch->CMDR = 0U;
@@ -724,7 +876,8 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    QUADSPI->ABR = 0U;
 
    uint32_t ccr = 0;
-   if (!raw) {
+   const bool framed_raw = raw_quad_uses_frame(raw, data_lines);
+   if (!raw || framed_raw) {
       ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
       ccr |= 1U << CCR_IMODE_Pos;
       ccr |= 1U << CCR_ADMODE_Pos;
@@ -734,25 +887,32 @@ HAL_StatusTypeDef qspi_mdma_start(uint8_t opcode, qspi_lines_t data_lines,
    ccr |= (uint32_t)(dummy_cycles & 0x1FU) << CCR_DCYC_Pos;
    ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
 
-   /* DMAEN routes QSPI's FTF flag to the MDMA HW-request line; in SWRM=1
-    * mode the MDMA ignores HW requests, so DMAEN is irrelevant.  Leave
-    * it asserted -- the legacy per-buffer FTF arc is benign and keeps
-    * any future TSEL-driven path consistent. */
    QUADSPI->CR |= QUADSPI_CR_DMAEN;
-
-   /* Arm MDMA channel (no SWRQ yet) before kicking QSPI. */
    __asm volatile("dsb sy" ::: "memory");
    ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL;
    __asm volatile("dsb sy" ::: "memory");
 
    QUADSPI->CCR = ccr;
-   if (!raw)
+   if (!raw || framed_raw)
       QUADSPI->AR = 0U;
 
+   if (quad_raw) {
+      HAL_StatusTypeDef s = poll_flag(QUADSPI_SR_FTF | QUADSPI_SR_TCF,
+                                      deadline);
+      if (s != HAL_OK) {
+         ch->CCR = 0U;
+         QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
+         qspi_abort();
+         ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF |
+                     MDMA_CIFCR_CBRTIF | MDMA_CIFCR_CBTIF |
+                     MDMA_CIFCR_CLTCIF;
+         return s;
+      }
+   }
    /* Issue the software request: the channel pulls beats back-to-back,
-    * AHB-stalled when the QSPI FIFO is empty rather than waiting for
-    * per-buffer FTF round-trips. */
+    * AHB-stalled when the QSPI FIFO is empty. */
    ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL | MDMA_CCR_SWRQ;
+   qspi_log_raw_regs("mdma", len, raw, data_lines, framed_raw);
 
    mdma_active_dst = dst_addr;
    mdma_active_len = len;
@@ -772,6 +932,7 @@ HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
       return HAL_ERROR;
    if (mdma_active)
       return HAL_BUSY;
+   const bool quad_raw = raw && data_lines == QSPI_LINES_4;
 
    __HAL_RCC_MDMA_CLK_ENABLE();
 
@@ -784,10 +945,11 @@ HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
    }
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
+   qspi_raw_frame_reset_gap(raw);
 
    uint32_t cr = QUADSPI->CR;
    cr &= ~QUADSPI_CR_FTHRES_Msk;
-   cr |= ((data_lines == QSPI_LINES_4 ? 3U : 15U)
+   cr |= ((quad_raw ? 15U : (data_lines == QSPI_LINES_4 ? 3U : 15U))
           << QUADSPI_CR_FTHRES_Pos);
    QUADSPI->CR = cr;
 
@@ -796,21 +958,52 @@ HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
    ch->CIFCR = MDMA_CIFCR_CTEIF | MDMA_CIFCR_CCTCIF | MDMA_CIFCR_CBRTIF |
                MDMA_CIFCR_CBTIF | MDMA_CIFCR_CLTCIF;
 
-   const uint32_t tlen = 64U;
-   ch->CTCR =
-       (0U << MDMA_CTCR_SINC_Pos) |
-       (0U << MDMA_CTCR_DINC_Pos) |
-       (0U << MDMA_CTCR_SSIZE_Pos) |
-       (0U << MDMA_CTCR_DSIZE_Pos) |
-       (0U << MDMA_CTCR_SINCOS_Pos) |
-       (0U << MDMA_CTCR_DINCOS_Pos) |
-       (0U << MDMA_CTCR_SBURST_Pos) |
-       (0U << MDMA_CTCR_DBURST_Pos) |
-       ((tlen - 1U) << MDMA_CTCR_TLEN_Pos);
+   /* Normal streams use 32-bit reads from QSPI->DR feeding 32-bit writes
+    * to CRC1->DR. Raw quad must keep the QSPI side byte-sized: 32-bit
+    * indirect-read DR accesses return stale upper byte lanes on MP135.
+    * MDMA pack mode groups four valid DR byte reads into one CRC word
+    * write, preserving the byte stream while avoiding a byte write per
+    * source byte. */
+   if (len & 0x3U)
+      return HAL_ERROR;
+
+#ifndef MDMA_TLEN_CRC
+#define MDMA_TLEN_CRC 64U
+#endif
+   const uint32_t tlen = quad_raw ? 16U : MDMA_TLEN_CRC;
+
+   if (len > 0x1FFFFU && (len & 0xFFFFU))
+      return HAL_ERROR;
+
+   uint32_t trgm;
+   if (len <= tlen)
+      trgm = 0U;
+   else if (len <= 65536U)
+      trgm = 1U;
+   else
+      trgm = 2U;
+
+   /* For raw quad, SSIZE=0 + DSIZE=2 + PKE packs four QSPI DR byte
+    * reads into one little-endian word write to CRC1->DR. For non-raw
+    * streams, SSIZE=DSIZE=2 keeps the existing word-wide path. CRC is
+    * configured with REV_IN=11 by crc32_hw_begin_direct(), matching the
+    * packed little-endian word feed. */
+   const uint32_t ctcr =
+       (0U  << MDMA_CTCR_SINC_Pos)   |
+       (0U  << MDMA_CTCR_DINC_Pos)   |
+       ((quad_raw ? 0U : 2U) << MDMA_CTCR_SSIZE_Pos) |
+       (2U  << MDMA_CTCR_DSIZE_Pos)  |
+       (0U  << MDMA_CTCR_SINCOS_Pos) |
+       (0U  << MDMA_CTCR_DINCOS_Pos) |
+       (0U  << MDMA_CTCR_SBURST_Pos) |
+       (0U  << MDMA_CTCR_DBURST_Pos) |
+       ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
+       (quad_raw ? MDMA_CTCR_PKE : 0U) |
+       ((quad_raw ? 0U : trgm) << MDMA_CTCR_TRGM_Pos) |
+       (quad_raw ? 0U : MDMA_CTCR_SWRM) |
+       MDMA_CTCR_BWM;
 
    if (len > 0x1FFFFU) {
-      if (len & 0xFFFFU)
-         return HAL_ERROR;
       const uint32_t blocks = len >> 16;
       if (blocks == 0U || blocks > 0xFFFU + 1U)
          return HAL_ERROR;
@@ -820,17 +1013,19 @@ HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
       ch->CBNDTR = len & MDMA_CBNDTR_BNDT_Msk;
    }
    ch->CBRUR = 0U;
-   ch->CSAR = (uint32_t)&QUADSPI->DR;
-   ch->CDAR = crc_dr_addr;
-   ch->CTBR = 0x1AU & MDMA_CTBR_TSEL_Msk;
-   ch->CMAR = 0U;
-   ch->CMDR = 0U;
+   ch->CTCR  = ctcr;
+   ch->CSAR  = (uint32_t)&QUADSPI->DR;
+   ch->CDAR  = crc_dr_addr;
+   ch->CTBR  = 0x1AU & MDMA_CTBR_TSEL_Msk;
+   ch->CMAR  = 0U;
+   ch->CMDR  = 0U;
 
    QUADSPI->DLR = len - 1U;
    QUADSPI->ABR = 0U;
 
    uint32_t ccr = 0;
-   if (!raw) {
+   const bool framed_raw = raw_quad_uses_frame(raw, data_lines);
+   if (!raw || framed_raw) {
       ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
       ccr |= 1U << CCR_IMODE_Pos;
       ccr |= 1U << CCR_ADMODE_Pos;
@@ -841,11 +1036,22 @@ HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
    ccr |= ((uint32_t)QSPI_FMODE_READ) << CCR_FMODE_Pos;
 
    QUADSPI->CR |= QUADSPI_CR_DMAEN;
+
+   /* Arm channel (without SWRQ) before kicking QSPI. */
+   __asm volatile("dsb sy" ::: "memory");
    ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL;
+   __asm volatile("dsb sy" ::: "memory");
 
    QUADSPI->CCR = ccr;
-   if (!raw)
+   if (!raw || framed_raw)
       QUADSPI->AR = 0U;
+   qspi_log_raw_regs("mdma_crc", len, raw, data_lines, framed_raw);
+
+   if (!quad_raw) {
+      /* Software request; channel drains block back-to-back, AHB-stalled
+       * when the QSPI FIFO is empty. */
+      ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL | MDMA_CCR_SWRQ;
+   }
 
    mdma_active_dst = 0U;
    mdma_active_len = 0U;
@@ -882,6 +1088,17 @@ HAL_StatusTypeDef qspi_mdma_finish_no_inval(uint32_t timeout_ms)
     * because we'll abort QSPI right after. */
    while (!(ch->CISR & MDMA_CISR_CTCIF)) {
       if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+         my_printf("ERR mdma_finish timeout cisr=%08lx cesr=%08lx "
+                   "cbndtr=%08lx qsr=%08lx qcr=%08lx qccr=%08lx "
+                   "dlyb_cr=%08lx dlyb_cfgr=%08lx\r\n",
+                   (unsigned long)ch->CISR,
+                   (unsigned long)ch->CESR,
+                   (unsigned long)ch->CBNDTR,
+                   (unsigned long)QUADSPI->SR,
+                   (unsigned long)QUADSPI->CR,
+                   (unsigned long)QUADSPI->CCR,
+                   (unsigned long)DLYB_QUADSPI->CR,
+                   (unsigned long)DLYB_QUADSPI->CFGR);
          ch->CCR = 0U;
          QUADSPI->CR &= ~QUADSPI_CR_DMAEN;
          qspi_abort();
@@ -963,6 +1180,13 @@ static HAL_StatusTypeDef qspi_mdma_start_addr(uint8_t opcode,
    }
    QUADSPI->FCR = QUADSPI_FCR_CTOF | QUADSPI_FCR_CSMF | QUADSPI_FCR_CTCF |
                   QUADSPI_FCR_CTEF;
+   qspi_raw_frame_reset_gap(raw);
+   const bool quad_byte_dr = (data_lines == QSPI_LINES_4);
+
+   uint32_t cr = QUADSPI->CR;
+   cr &= ~QUADSPI_CR_FTHRES_Msk;
+   cr |= (15U << QUADSPI_CR_FTHRES_Pos);
+   QUADSPI->CR = cr;
 
    MDMA_Channel_TypeDef *const ch = MDMA_Channel0;
    ch->CCR = 0U;
@@ -977,17 +1201,22 @@ static HAL_StatusTypeDef qspi_mdma_start_addr(uint8_t opcode,
       __asm volatile("dsb sy" ::: "memory");
    }
 
-   const uint32_t tlen = (len < 64U) ? len : 64U;
+   /* This helper is QSPI FTF-request paced (SWRM is clear).  With
+    * FTHRES programmed for 16 bytes, one hardware request must consume
+    * no more than those guaranteed FIFO bytes.  Quad also keeps source
+    * and destination byte-sized; 32-bit DR reads expose stale upper byte
+    * lanes. */
+   const uint32_t tlen = (len < 16U) ? len : 16U;
    const uint32_t bndt = len;
 
    const uint32_t ctcr =
        (0U  << MDMA_CTCR_SINC_Pos)   |
        (2U  << MDMA_CTCR_DINC_Pos)   |
-       (2U  << MDMA_CTCR_SSIZE_Pos)  |
-       (2U  << MDMA_CTCR_DSIZE_Pos)  |
-       (2U  << MDMA_CTCR_DINCOS_Pos) |
+       ((quad_byte_dr ? 0U : 2U) << MDMA_CTCR_SSIZE_Pos) |
+       ((quad_byte_dr ? 0U : 2U) << MDMA_CTCR_DSIZE_Pos) |
+       ((quad_byte_dr ? 0U : 2U) << MDMA_CTCR_DINCOS_Pos) |
        (0U  << MDMA_CTCR_SBURST_Pos) |
-       (4U  << MDMA_CTCR_DBURST_Pos) |
+       (0U  << MDMA_CTCR_DBURST_Pos) |
        ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
        MDMA_CTCR_BWM;
 
@@ -1017,7 +1246,8 @@ static HAL_StatusTypeDef qspi_mdma_start_addr(uint8_t opcode,
    QUADSPI->ABR = 0U;
 
    uint32_t ccr = 0;
-   if (!raw) {
+   const bool framed_raw = raw_quad_uses_frame(raw, data_lines);
+   if (!raw || framed_raw) {
       ccr |= ((uint32_t)opcode) << CCR_INSTRUCTION_Pos;
       ccr |= 1U << CCR_IMODE_Pos;
       ccr |= 1U << CCR_ADMODE_Pos;
@@ -1031,8 +1261,9 @@ static HAL_StatusTypeDef qspi_mdma_start_addr(uint8_t opcode,
    ch->CCR = MDMA_CCR_EN | MDMA_CCR_PL;
 
    QUADSPI->CCR = ccr;
-   if (!raw)
+   if (!raw || framed_raw)
       QUADSPI->AR = flash_addr;
+   qspi_log_raw_regs("mdma_addr", len, raw, data_lines, framed_raw);
 
    mdma_active_dst = dst_addr;
    mdma_active_len = len;

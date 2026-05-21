@@ -70,6 +70,8 @@ HAL_StatusTypeDef qspi_autopoll(const qspi_cmd_t *cmd, uint32_t mask,
 
 void qspi_abort(void);
 int qspi_busy(void);
+HAL_StatusTypeDef qspi_set_fthres(uint32_t fthres);
+uint32_t qspi_get_fthres(void);
 
 /* Streaming bench read: programs CCR/DLR/AR once, drains DR in 32-bit
  * words for `len` bytes (no buffer allocation), validates against
@@ -77,9 +79,8 @@ int qspi_busy(void);
  * error offset (0xFFFFFFFF if all match), the first 16 bytes actually
  * received (got16, useful even when no error -- always populated), and
  * elapsed milliseconds. */
-/* `raw=true` -> IMODE=0 + ADMODE=0: nothing on the wire except the
- * data-phase bytes themselves (matches a generic SPI slave that just
- * shifts bits on SCK).  In that case `opcode` is ignored. */
+/* `raw=true` uses IMODE=0 + ADMODE=0 and validates the data phase as raw
+ * received counter bytes. */
 HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
                                   uint8_t dummy_cycles, uint32_t len,
                                   bool raw,
@@ -91,10 +92,10 @@ HAL_StatusTypeDef qspi_bench_read(uint8_t opcode, qspi_lines_t data_lines,
  * (QUADSPI FIFO threshold) so the QSPI FIFO drains directly into DDR
  * without any CPU loop.  Source = &QUADSPI->DR (address-fixed); dest =
  * `dst_addr` in DDR (incrementing).  CCR is programmed exactly like the
- * bench (FMODE=01, IMODE/ADMODE = 0 if `raw`, else IMODE=1 ADMODE=1
- * ADSIZE=2).  Polls MDMA CTC + QUADSPI TCF; aborts on timeout.  After
- * success the destination cache lines are invalidated so a subsequent
- * CPU read sees the freshly-DMA'd bytes. */
+ * bench (FMODE=01; raw reads use no instruction/address).  Polls MDMA CTC +
+ * QUADSPI TCF; aborts on timeout.  After success the destination cache
+ * lines are invalidated so a subsequent CPU read sees the freshly-DMA'd
+ * bytes. */
 HAL_StatusTypeDef qspi_mdma_read(uint8_t opcode, qspi_lines_t data_lines,
                                  uint8_t dummy_cycles, uint32_t len,
                                  bool raw, uint32_t dst_addr,
@@ -118,9 +119,9 @@ HAL_StatusTypeDef qspi_mdma_finish(uint32_t timeout_ms);
 HAL_StatusTypeDef qspi_mdma_finish_no_inval(uint32_t timeout_ms);
 void qspi_invalidate_range(uint32_t addr, uint32_t len);
 
-/* MDMA channel 0 direct stream into a fixed 8-bit destination such as
- * CRC1->DR.  This uses byte-sized source and destination transfers, keeps
- * both addresses fixed, and leaves cache state untouched. */
+/* MDMA channel 0 direct stream into a fixed 32-bit destination such as
+ * CRC1->DR.  Raw quad uses byte-sized QSPI reads packed into word writes;
+ * other modes use word-sized source and destination transfers. */
 HAL_StatusTypeDef qspi_mdma_crc_start(uint8_t opcode,
                                       qspi_lines_t data_lines,
                                       uint8_t dummy_cycles,

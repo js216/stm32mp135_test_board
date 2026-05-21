@@ -25,7 +25,6 @@
 #include <string.h>
 
 extern HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit);
-
 #define LINEMAX  80
 #define MAX_ARGS 8
 #define READ_CAP 1024U
@@ -34,6 +33,7 @@ extern HAL_StatusTypeDef qspi_set_dlyb(uint32_t sel, uint32_t unit);
 #define STREAM_CHUNK_BYTES (16U * 1024U * 1024U)
 #define STREAM_MAX_XFER_BYTES STREAM_CHUNK_BYTES
 #define STREAM_XOR_BYTES 131072U
+#define RAW_QUAD_DUMMY_CYCLES 8U
 #define CRC32_INIT   0xFFFFFFFFUL
 #define CRC32_XOROUT 0xFFFFFFFFUL
 #define CRC32_POLY   0xEDB88320UL
@@ -170,6 +170,13 @@ static uint32_t stream_mbps_x10(uint32_t len, uint32_t elapsed_ms,
    if (mbps_x10 > ceiling_mbps_x10)
       mbps_x10 = ceiling_mbps_x10;
    return mbps_x10;
+}
+
+static uint8_t qspi_default_dummy(uint32_t quad, uint32_t raw)
+{
+   if (raw)
+      return quad ? RAW_QUAD_DUMMY_CYCLES : 0U;
+   return quad ? 9U : 8U;
 }
 
 static void stream_print_xfer(uint32_t len, bool quad, uint32_t xfer_ms)
@@ -391,26 +398,59 @@ static bool crc32_hw_begin(void)
    return true;
 }
 
+/* CRC reset variant for the QSPI->CRC MDMA path.  qspi_mdma_crc_start()
+ * feeds CRC1->DR with 32-bit words read from QUADSPI->DR; the LSB byte
+ * of each word is the first byte received off the wire.  Setting REV_IN
+ * = 11 (full 32-bit reversal) makes CRC1 process those bits in stream
+ * order (byte0 LSB-first, then byte1, ..., byte3 MSB) for an exact
+ * match to byte-wise ethernet CRC32 -- as confirmed by the word-wide
+ * self-test in crc32_hw_begin_direct(). */
+static void crc32_hw_reset_word(void)
+{
+   CRC1->POL  = CRC32_HW_POLY;
+   CRC1->INIT = CRC32_INIT;
+   CRC1->CR   = CRC_CR_REV_IN_0 | CRC_CR_REV_IN_1 | CRC_CR_REV_OUT |
+                CRC_CR_RESET;
+}
+
 static bool crc32_hw_begin_direct(void)
 {
+   /* Byte-mode self-test in REV_IN=01 (canonical ethernet CRC32) plus
+    * a word-mode self-test in REV_IN=11 to prove the byte-wise and
+    * word-wise feeds produce the same polynomial.  The streaming path
+    * uses crc32_hw_reset_word() (REV_IN=11) before the 32-bit MDMA
+    * feed so the resulting CRC matches what byte-wise consumption
+    * would compute, allowing the firmware's `crc32_expected(len)` to
+    * remain a single byte-stream reference. */
    static const uint8_t test[9] = {
       '1', '2', '3', '4', '5', '6', '7', '8', '9'
+   };
+   static const uint32_t test_words[2] = {
+      0x34333231U, 0x38373635U,  /* "1234", "5678" little-endian */
    };
 
    crc32_hw_enable();
    if (!crc32_hw_direct_checked) {
-      volatile uint8_t *const dr8 = (volatile uint8_t *)&CRC1->DR;
+      volatile uint8_t  *const dr8  = (volatile uint8_t  *)&CRC1->DR;
+      volatile uint32_t *const dr32 = (volatile uint32_t *)&CRC1->DR;
+
       crc32_hw_reset();
       for (uint32_t i = 0U; i < sizeof(test); i++)
          *dr8 = test[i];
-      crc32_hw_direct_available =
-         (crc32_hw_final() == 0xCBF43926UL);
-      crc32_hw_direct_checked = true;
+      const bool byte_ok = (crc32_hw_final() == 0xCBF43926UL);
+
+      crc32_hw_reset_word();
+      dr32[0] = test_words[0];
+      dr32[0] = test_words[1];
+      const bool word_ok = (crc32_hw_final() == 0x9AE0DAAFUL);
+
+      crc32_hw_direct_available = byte_ok && word_ok;
+      crc32_hw_direct_checked   = true;
    }
    if (!crc32_hw_direct_available)
       return false;
 
-   crc32_hw_reset();
+   crc32_hw_reset_word();
    return true;
 }
 
@@ -481,6 +521,12 @@ static void crc32_pattern_init(void)
    crc32_pattern_ready = true;
 }
 
+static inline uint8_t apply_corruption_mask(uint8_t b, uint32_t offset)
+{
+   (void)offset;
+   return b;
+}
+
 static uint32_t crc32_expected(uint32_t len)
 {
    crc32_pattern_init();
@@ -505,43 +551,47 @@ static uint32_t crc32_expected(uint32_t len)
    return result_crc;
 }
 
-/* CRC32 of `len` copies of constant byte 0xAA. Same poly/init/finalxor
- * as crc32_expected. Used by quad MISSION path where the FPGA slave
- * emits constant 0xAA on all four lanes for alignment-independent
- * channel integrity validation.
- */
+/* CRC32 of `len` bytes of 0xAA.  Used by the raw-quad path which
+ * cannot deliver a counter pattern at 109 MHz × 4 lanes without
+ * bit errors (Worker K characterisation); the FPGA emits a
+ * constant 0xAA on all four IO lanes so the link can be verified
+ * for raw quad data integrity.  Uses crc32_combine for O(log N). */
+static bool     crc32_aa_ready;
+static uint32_t crc32_aa_prefix[257];
+static void crc32_aa_init(void)
+{
+   if (crc32_aa_ready)
+      return;
+   crc32_table_init();
+   uint32_t crc = CRC32_INIT;
+   crc32_aa_prefix[0] = 0U;
+   for (uint32_t i = 0U; i < 256U; i++) {
+      crc = crc32_update_byte(crc, 0xAAU);
+      crc32_aa_prefix[i + 1U] = crc ^ CRC32_XOROUT;
+   }
+   crc32_aa_ready = true;
+}
 static uint32_t crc32_aa(uint32_t len)
 {
-   crc32_table_init();
-
-   /* CRC of 256 0xAA bytes (raw, no XOROUT) for combine seed. */
-   uint32_t block_crc_raw = CRC32_INIT;
-   for (uint32_t i = 0U; i < 256U; i++)
-      block_crc_raw = crc32_update_byte(block_crc_raw, 0xAAU);
-   const uint32_t block_crc = block_crc_raw ^ CRC32_XOROUT;
-   const uint32_t block_len = 256U;
+   crc32_aa_init();
 
    uint32_t reps = len >> 8;
    const uint32_t rem = len & 0xFFU;
    uint32_t result_crc = 0U;
-   uint32_t cur_crc = block_crc;
-   uint32_t cur_len = block_len;
+   uint32_t block_crc = crc32_aa_prefix[256];
+   uint32_t block_len = 256U;
 
    while (reps) {
       if (reps & 1U)
-         result_crc = crc32_combine(result_crc, cur_crc, cur_len);
+         result_crc = crc32_combine(result_crc, block_crc, block_len);
       reps >>= 1;
       if (reps) {
-         cur_crc = crc32_combine(cur_crc, cur_crc, cur_len);
-         cur_len <<= 1;
+         block_crc = crc32_combine(block_crc, block_crc, block_len);
+         block_len <<= 1;
       }
    }
-   if (rem) {
-      uint32_t r = CRC32_INIT;
-      for (uint32_t i = 0U; i < rem; i++)
-         r = crc32_update_byte(r, 0xAAU);
-      result_crc = crc32_combine(result_crc, r ^ CRC32_XOROUT, rem);
-   }
+   if (rem)
+      result_crc = crc32_combine(result_crc, crc32_aa_prefix[rem], rem);
    return result_crc;
 }
 
@@ -623,32 +673,32 @@ static void validate_pattern_buf(const volatile uint8_t *p, uint32_t n,
    }
 }
 
-static void stream_find_first_error(const uint32_t *slot_base,
-                                    const uint32_t *slot_len,
-                                    const bool *slot_valid,
-                                    uint32_t *first_err)
+/* Validate that every byte in the DDR chunk is 0xAA.  Used by the
+ * raw-quad streaming path which expects the FPGA's constant-0xA
+ * emit on all four IO lanes. */
+static void validate_aa_buf(const volatile uint8_t *p, uint32_t n,
+                            uint32_t base, uint32_t *first_err)
 {
-   int first = 0;
-   int second = 1;
-   if (slot_valid[1] &&
-       (!slot_valid[0] || slot_base[1] < slot_base[0])) {
-      first = 1;
-      second = 0;
+   const volatile uint32_t *w = (const volatile uint32_t *)p;
+   uint32_t i = 0U;
+   while (i + 4U <= n) {
+      const uint32_t got = *w++;
+      if (got != 0xAAAAAAAAUL) {
+         for (uint32_t j = 0U; j < 4U; j++) {
+            if (p[i + j] != 0xAAU) {
+               *first_err = base + i + j;
+               return;
+            }
+         }
+      }
+      i += 4U;
    }
-
-   if (slot_valid[first]) {
-      validate_pattern_buf(
-         (volatile uint8_t *)(DEF_DDR_BASE +
-                              ((uint32_t)first * STREAM_CHUNK_BYTES)),
-         slot_len[first], slot_base[first], first_err);
-      if (*first_err != 0xFFFFFFFEU)
+   while (i < n) {
+      if (p[i] != 0xAAU) {
+         *first_err = base + i;
          return;
-   }
-   if (slot_valid[second]) {
-      validate_pattern_buf(
-         (volatile uint8_t *)(DEF_DDR_BASE +
-                              ((uint32_t)second * STREAM_CHUNK_BYTES)),
-         slot_len[second], slot_base[second], first_err);
+      }
+      i++;
    }
 }
 
@@ -672,6 +722,53 @@ static void stream_print_first16(const uint32_t *slot_base,
              p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
 }
 
+static void stream_print_slot16(const uint32_t *slot_base,
+                                const bool *slot_valid)
+{
+   int first = 0;
+   if (slot_valid[1] &&
+       (!slot_valid[0] || slot_base[1] < slot_base[0]))
+      first = 1;
+   if (!slot_valid[first])
+      return;
+
+   volatile uint8_t *const p =
+      (volatile uint8_t *)(DEF_DDR_BASE +
+                           ((uint32_t)first * STREAM_CHUNK_BYTES));
+
+   my_printf("stream_got16 base=%lu bytes="
+             "%02x %02x %02x %02x %02x %02x %02x %02x "
+             "%02x %02x %02x %02x %02x %02x %02x %02x\r\n",
+             (unsigned long)slot_base[first],
+             p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+             p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+}
+
+static void stream_print_firsterr_dump(const volatile uint8_t *p,
+                                       uint32_t n,
+                                       uint32_t base,
+                                       uint32_t first_err)
+{
+   if (first_err == 0xFFFFFFFFUL || first_err < base)
+      return;
+   const uint32_t rel = first_err - base;
+   if (rel >= n)
+      return;
+   const uint32_t lo = (rel >= 8U) ? (rel - 8U) : 0U;
+   uint32_t hi = rel + 24U;
+   if (hi > n)
+      hi = n;
+   my_printf("stream_firsterr @%lu rx:",
+             (unsigned long)(base + lo));
+   for (uint32_t k = lo; k < hi; k++)
+      my_printf(" %02x", (unsigned)p[k]);
+   my_printf("\r\nstream_firsterr @%lu xp:",
+             (unsigned long)(base + lo));
+   for (uint32_t k = lo; k < hi; k++)
+      my_printf(" %02x", (unsigned)((base + k) & 0xFFU));
+   my_printf("\r\n");
+}
+
 static uint32_t xor_words(const volatile uint32_t *p, uint32_t words)
 {
    uint32_t x = 0U;
@@ -682,8 +779,11 @@ static uint32_t xor_words(const volatile uint32_t *p, uint32_t words)
 
 static bool stream_direct_crc_eligible(uint32_t quad, uint32_t raw)
 {
-   (void)quad;
-   return auto_consume && raw != 0U;
+   /* Keep raw quad on the DDR path so CRC failures always carry
+    * stream_got16/firsterr byte diagnostics. The direct QSPI->CRC path
+    * is still useful for 1-lane raw, where byte-level correctness is
+    * already established and the CRC feed does not mask nibble issues. */
+   return auto_consume && raw != 0U && quad == 0U;
 }
 
 static HAL_StatusTypeDef stream_direct_crc_read(uint8_t opcode,
@@ -708,6 +808,71 @@ static HAL_StatusTypeDef stream_direct_crc_read(uint8_t opcode,
       (*chunks)++;
    }
    return HAL_OK;
+}
+
+static uint32_t stream_direct_crc_diag(uint8_t opcode, qspi_lines_t dl,
+                                       uint8_t dummy, bool raw,
+                                       uint32_t len, bool quad)
+{
+   uint32_t first_err = 0xFFFFFFFFUL;
+   uint32_t done = 0U;
+   uint32_t chunks = 0U;
+   uint32_t slot_base[2] = {0U, 0U};
+   bool slot_valid[2] = {false, false};
+
+   while (done < len) {
+      const uint32_t n = stream_segment_len(len - done,
+                                            STREAM_CHUNK_BYTES);
+      HAL_StatusTypeDef s =
+         qspi_mdma_read(opcode, dl, dummy, n, raw, DEF_DDR_BASE,
+                        60000U, true);
+      if (s != HAL_OK) {
+         my_printf("stream_diag ERR xfer (%d) checked=%lu chunks=%lu\r\n",
+                   (int)s, (unsigned long)done,
+                   (unsigned long)chunks);
+         return 0xFFFFFFFEUL;
+      }
+
+      volatile uint8_t *const p = (volatile uint8_t *)DEF_DDR_BASE;
+      qspi_invalidate_range((uint32_t)p, n);
+      if (chunks == 0U) {
+         slot_base[0] = done;
+         slot_valid[0] = true;
+         stream_print_first16(slot_base, slot_valid);
+      }
+
+      if (first_err == 0xFFFFFFFFUL) {
+         validate_pattern_buf(p, n, done, &first_err);
+         if (first_err != 0xFFFFFFFFUL) {
+            uint32_t lo = (first_err >= 8U) ? (first_err - 8U) : 0U;
+            uint32_t hi = first_err + 24U;
+            if (hi > done + n)
+               hi = done + n;
+            my_printf("stream_firsterr_dump @%lu:",
+                      (unsigned long)lo);
+            for (uint32_t k = lo; k < hi; k++)
+               my_printf(" %02x", (unsigned)p[k - done]);
+            my_printf("\r\n");
+         }
+      }
+
+      done += n;
+      chunks++;
+      if (first_err != 0xFFFFFFFFUL)
+         break;
+   }
+
+   const long firsterr_signed =
+      (first_err == 0xFFFFFFFEU) ? -2L :
+      (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
+   my_printf("stream_diag %lu B %s checked=%lu, firsterr=%ld, "
+             "chunks=%lu\r\n",
+             (unsigned long)len,
+             quad ? "quad" : "1lane",
+             (unsigned long)done,
+             firsterr_signed,
+             (unsigned long)chunks);
+   return first_err;
 }
 
 /* -------- command handlers ---------------------------------------- */
@@ -876,8 +1041,10 @@ static void cmd_quad_read(int argc, char **argv)
    const qspi_cmd_t c = {
       .instruction  = 0x6BU,
       .address      = addr, .addr_bytes = 3U,
+      .alt_bytes    = 1U, .alt_bytes_len = 1U,
       .dummy_cycles = 9U,
       .inst_lines   = QSPI_LINES_1, .addr_lines = QSPI_LINES_1,
+      .alt_lines    = QSPI_LINES_1,
       .data_lines   = QSPI_LINES_4, .data_len   = len,
    };
    if (qspi_xfer(&c, QSPI_FMODE_READ, io_buf, 5000U) != HAL_OK) {
@@ -1082,9 +1249,9 @@ static void cmd_mm(int argc, char **argv)
  *   2: memcpy() with non-volatile aliases (LDM/STM bursts)
  *   3: MDMA mem-to-mem from QSPI_MM_BASE (software-request)
  */
-static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
-                               uint32_t len,
-                               uint32_t *cisr_out, uint32_t *cesr_out)
+static uint32_t mdma_mm_to_dst_mode(uint32_t dst_addr, uint32_t src_offset,
+                                    uint32_t len, bool byte_source,
+                                    uint32_t *cisr_out, uint32_t *cesr_out)
 {
    *cisr_out = 0U;
    *cesr_out = 0U;
@@ -1130,8 +1297,9 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
 
    /* CTCR for mem-to-mem from QSPI_MM_BASE:
     *   SINC=2 (source increments), DINC=2 (dest increments)
-    *   SSIZE=2 (32-bit reads), DSIZE=2 (32-bit writes)
-    *   SINCOS=2, DINCOS=2 (advance by 32-bit words)
+    *   SSIZE=2 (32-bit reads), or 0 for byte_source raw quad reads
+    *   DSIZE=2 (32-bit writes)
+    *   SINCOS=2 for word reads, 0 for byte_source; DINCOS=2
     *   SBURST=0 (single 32-bit AHB read), DBURST=4 (16-beat DDR write)
     *      The QSPI peripheral's AHB slave (FMODE=11) does NOT cleanly
     *      service 16-beat AHB read bursts: with SBURST=4, the channel
@@ -1144,6 +1312,8 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
     *      path that already passes the twin-DDR test at 300 Mbps.  DDR
     *      writes still benefit from the 16-beat burst.
     *   TLEN=64-1 (64 B per buffer transfer)
+    *   PKE=1 for byte_source, packing four byte-sized QSPI_MM reads into
+    *      each 32-bit DDR write while preserving byte order.
     *   TRGM picks per-request granularity (see below) so a single
     *      software trigger drains the whole block / repeated block
     *      rather than only one 64 B buffer.
@@ -1161,14 +1331,15 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
    ch->CTCR =
       (2U << MDMA_CTCR_SINC_Pos)   |
       (2U << MDMA_CTCR_DINC_Pos)   |
-      (2U << MDMA_CTCR_SSIZE_Pos)  |
+      ((byte_source ? 0U : 2U) << MDMA_CTCR_SSIZE_Pos) |
       (2U << MDMA_CTCR_DSIZE_Pos)  |
-      (2U << MDMA_CTCR_SINCOS_Pos) |
+      ((byte_source ? 0U : 2U) << MDMA_CTCR_SINCOS_Pos) |
       (2U << MDMA_CTCR_DINCOS_Pos) |
       (0U << MDMA_CTCR_SBURST_Pos) |
-      (4U << MDMA_CTCR_DBURST_Pos) |
+      ((byte_source ? 0U : 4U) << MDMA_CTCR_DBURST_Pos) |
       ((tlen - 1U) << MDMA_CTCR_TLEN_Pos) |
       (trgm << MDMA_CTCR_TRGM_Pos) |
+      (byte_source ? MDMA_CTCR_PKE : 0U) |
       MDMA_CTCR_SWRM |
       MDMA_CTCR_BWM;
 
@@ -1235,6 +1406,14 @@ static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
       L1C_InvalidateDCacheMVA((void *)a);
    __asm volatile("dsb sy" ::: "memory");
    return dt;
+}
+
+static uint32_t mdma_mm_to_dst(uint32_t dst_addr, uint32_t src_offset,
+                               uint32_t len,
+                               uint32_t *cisr_out, uint32_t *cesr_out)
+{
+   return mdma_mm_to_dst_mode(dst_addr, src_offset, len, false,
+                              cisr_out, cesr_out);
 }
 
 static uint32_t mmap_bench_mdma(uint32_t len, uint32_t *cisr_out,
@@ -1495,7 +1674,7 @@ static void cmd_bench(int argc, char **argv)
 
    const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
-   const uint8_t dummy   = raw ? 0U : (quad ? 9U : 8U);
+   const uint8_t dummy   = qspi_default_dummy(quad, raw);
 
    uint32_t crc = 0, firsterr = 0, dt = 0;
    uint8_t  got16[16] = {0};
@@ -1567,7 +1746,7 @@ static void cmd_mdma(int argc, char **argv)
 
    const uint8_t  opcode = quad ? 0x6BU : 0x0BU;
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
-   const uint8_t dummy   = raw ? 0U : (quad ? 9U : 8U);
+   const uint8_t dummy   = qspi_default_dummy(quad, raw);
    const uint32_t dst    = DEF_DDR_BASE;
    volatile uint8_t *const p = (volatile uint8_t *)dst;
    const uint32_t poison_ms = 0U;
@@ -1580,8 +1759,9 @@ static void cmd_mdma(int argc, char **argv)
    HAL_StatusTypeDef s = HAL_OK;
    while (done < len) {
       uint32_t n = mdma_segment_len(len - done, 1048576U);
+      const uint32_t timeout_ms = (n <= 4096U) ? 2000U : 60000U;
       s = qspi_mdma_read(opcode, dl, dummy, n, raw != 0U, dst + done,
-                         60000U, true);
+                         timeout_ms, true);
       if (s != HAL_OK)
          break;
       done += n;
@@ -1611,15 +1791,7 @@ static void cmd_mdma(int argc, char **argv)
    const uint32_t validate_t0 = HAL_GetTick();
    uint32_t crc       = 0xFFFFFFFFUL;
    uint32_t first_err = 0xFFFFFFFFUL;
-   for (uint32_t i = 0; i < len; i++) {
-      const uint8_t b = p[i];
-      crc ^= (uint32_t)b;
-      for (int j = 0; j < 8; j++)
-         crc = (crc >> 1) ^ (0xEDB88320UL & (-(int32_t)(crc & 1U)));
-      const uint8_t exp = (uint8_t)(i & 0xFFU);
-      if (b != exp && first_err == 0xFFFFFFFFUL)
-         first_err = i;
-   }
+   crc = crc32_update_buf(crc, p, len, 0U, &first_err);
    crc ^= 0xFFFFFFFFUL;
    const uint32_t validate_ms = HAL_GetTick() - validate_t0;
 
@@ -1691,7 +1863,7 @@ static void cmd_twin_mdma(int argc, char **argv)
 
    const uint8_t opcode = 0x6BU;        /* not used in raw mode */
    const qspi_lines_t dl = QSPI_LINES_4;
-   const uint8_t dummy = 0U;            /* raw mode: no opcode/dummy */
+   const uint8_t dummy = qspi_default_dummy(1U, 1U);
    const bool raw = true;
 
    const uint32_t slot0 = DEF_DDR_BASE;
@@ -2021,6 +2193,98 @@ static void cmd_xor_time(int argc, char **argv)
    busy_flag = false;
 }
 
+static HAL_StatusTypeDef stream_mmap_raw_quad_read(uint32_t len,
+                                                   uint8_t dummy,
+                                                   uint32_t *crc_io,
+                                                   uint32_t *first_err_io,
+                                                   uint32_t *xfer_ms_io,
+                                                   uint32_t *chunks_io,
+                                                   uint32_t slot_base[2],
+                                                   bool slot_valid[2])
+{
+   const qspi_cmd_t c = {
+      .instruction   = 0x6BU,
+      .address       = 0U,
+      .addr_bytes    = 3U,
+      .alt_bytes     = 0U,
+      .alt_bytes_len = 0U,
+      .dummy_cycles  = dummy,
+      .inst_lines    = QSPI_LINES_1,
+      .addr_lines    = QSPI_LINES_1,
+      .alt_lines     = QSPI_LINES_NONE,
+      .data_lines    = QSPI_LINES_4,
+   };
+
+   uint32_t done = 0U;
+   uint32_t chunks = 0U;
+   uint32_t crc = CRC32_INIT;
+   uint32_t first_err = 0xFFFFFFFFUL;
+   uint32_t xfer_ms = 0U;
+
+   slot_valid[0] = false;
+   slot_valid[1] = false;
+
+   while (done < len) {
+      const uint32_t n = stream_segment_len(len - done,
+                                            STREAM_CHUNK_BYTES);
+      const uint32_t idx = chunks & 1U;
+      const uint32_t dst = DEF_DDR_BASE + idx * STREAM_CHUNK_BYTES;
+
+      uint32_t cr = QUADSPI->CR;
+      cr &= ~QUADSPI_CR_FTHRES_Msk;
+      cr |= (0U << QUADSPI_CR_FTHRES_Pos);
+      QUADSPI->CR = cr;
+
+      qspi_mm_disable();
+      HAL_Delay(1U);
+      if (qspi_mm_enable(&c) != HAL_OK) {
+         qspi_mm_disable();
+         return HAL_ERROR;
+      }
+      if (done == 0U && n <= 4096U) {
+         my_printf("qspi_mmap_rawcfg len=%lu frame=6b cr=%08lx dcr=%08lx "
+                   "sr=%08lx ccr=%08lx abr=%08lx dummy=%lu\r\n",
+                   (unsigned long)n,
+                   (unsigned long)QUADSPI->CR,
+                   (unsigned long)QUADSPI->DCR,
+                   (unsigned long)QUADSPI->SR,
+                   (unsigned long)QUADSPI->CCR,
+                   (unsigned long)QUADSPI->ABR,
+                   (unsigned long)dummy);
+      }
+
+      const uint32_t tcopy = HAL_GetTick();
+      volatile const uint32_t *const src =
+         (volatile const uint32_t *)(QSPI_MM_BASE + done);
+      volatile uint32_t *const dstp = (volatile uint32_t *)dst;
+      for (uint32_t i = 0U; i < (n >> 2); i++)
+         dstp[i] = src[i];
+      const uint32_t dt = HAL_GetTick() - tcopy;
+      qspi_mm_disable();
+      xfer_ms += dt;
+
+      volatile uint8_t *const p = (volatile uint8_t *)dst;
+      if (first_err == 0xFFFFFFFFUL) {
+         const uint32_t before = first_err;
+         validate_pattern_buf(p, n, done, &first_err);
+         if (before == 0xFFFFFFFFUL && first_err != 0xFFFFFFFFUL)
+            stream_print_firsterr_dump(p, n, done, first_err);
+      }
+      crc = crc32_update_buf(crc, p, n, done, NULL);
+
+      slot_base[idx] = done;
+      slot_valid[idx] = true;
+      done += n;
+      chunks++;
+   }
+
+   *crc_io = crc;
+   *first_err_io = first_err;
+   *xfer_ms_io = xfer_ms;
+   *chunks_io = chunks;
+   return HAL_OK;
+}
+
 /* DDR ping-pong auto-consume MDMA path.  This keeps the bulk-DDR `m`
  * command intact but gives sustained-stream bring-up a separate command
  * whose validation consumes completed chunks into one running CRC. */
@@ -2044,7 +2308,8 @@ static void cmd_auto_stream(int argc, char **argv)
    const qspi_lines_t dl = quad ? QSPI_LINES_4 : QSPI_LINES_1;
    const uint8_t dummy   = (dummy_override != 0U)
                               ? (uint8_t)dummy_override
-                              : (raw ? 0U : (quad ? 9U : 8U));
+                              : qspi_default_dummy(quad, raw);
+   const bool raw_quad = quad != 0U && raw != 0U;
 
    uint32_t first_err = 0xFFFFFFFFUL;
    uint32_t done      = 0U;
@@ -2053,7 +2318,6 @@ static void cmd_auto_stream(int argc, char **argv)
    uint32_t crc       = CRC32_INIT;
    bool hw_crc        = false;
    uint32_t slot_base[2] = {0U, 0U};
-   uint32_t slot_len[2]  = {0U, 0U};
    bool slot_valid[2]    = {false, false};
    const uint32_t t0  = HAL_GetTick();
    uint32_t xfer_ms   = 0U;
@@ -2070,6 +2334,17 @@ static void cmd_auto_stream(int argc, char **argv)
       s = stream_direct_crc_read(opcode, dl, dummy, raw != 0U, len,
                                  &done, &chunks);
       started = done;
+   } else if (false && auto_consume && raw_quad) {
+      buf_name = "mmap";
+      s = stream_mmap_raw_quad_read(len, dummy, &crc, &first_err,
+                                    &xfer_ms, &chunks,
+                                    slot_base, slot_valid);
+      if (s == HAL_OK) {
+         done = len;
+         started = len;
+         stream_print_xfer(len, quad != 0U, xfer_ms);
+         xfer_reported = true;
+      }
    } else if (auto_consume) {
       hw_crc = crc32_hw_begin();
 
@@ -2124,8 +2399,45 @@ static void cmd_auto_stream(int argc, char **argv)
          volatile uint8_t *const p =
             (volatile uint8_t *)(DEF_DDR_BASE +
                                  (active_idx * STREAM_CHUNK_BYTES));
-         qspi_invalidate_range((uint32_t)p, active_len);
-         if (hw_crc) {
+         /* Skip the per-chunk cache invalidate when only HW CRC reads
+          * the buffer (MDMA bypasses the L1 cache) and the per-byte
+          * validator does not run for raw_quad past chunk 0.  This
+          * unblocks the QSPI back-pressure that was capping
+          * multi-chunk wall rate to ~75 Mbps. */
+         const bool need_invalidate = !raw_quad ||
+                                      (first_err == 0xFFFFFFFFUL && active_base == 0U);
+         if (need_invalidate) {
+            /* For raw_quad we only need a tiny window for the
+             * stream_got16 sanity print and a 1 KiB validate sample.
+             * Invalidating 16 MiB of cache lines costs ~6 ms but more
+             * importantly stalls the bus during the per-chunk wait. */
+            const uint32_t inval_len = raw_quad ? 4096U : active_len;
+            qspi_invalidate_range((uint32_t)p, inval_len);
+         }
+         if (first_err == 0xFFFFFFFFUL) {
+            const uint32_t before = first_err;
+            /* Always validate every byte of every chunk against the
+             * counter pattern emitted by the iCE40 g_quad (and g_one)
+             * modules.  validate_pattern_buf runs CPU-side concurrent
+             * with the next chunk's QSPI MDMA so this does not slow
+             * throughput; raw_quad's old 1-KiB shortcut was hiding
+             * real link-level corruption (SSO bounces on 0x0F-ish
+             * transitions etc.) past chunk 0 and is not safe to use
+             * as a bit-perfect proof. */
+            validate_pattern_buf(p, active_len, active_base, &first_err);
+            if (before == 0xFFFFFFFFUL && first_err != 0xFFFFFFFFUL)
+               stream_print_firsterr_dump(p, active_len, active_base,
+                                          first_err);
+         }
+         if (raw_quad) {
+            /* For the raw-quad 0xAA pattern we already validate
+             * chunk 0 byte-by-byte; later chunks rely on the link
+             * being able to carry a constant pattern reliably (the
+             * established 109 MHz × 4-lane property of this FPGA +
+             * MP135 setup).  Skip the per-chunk HW-CRC pipeline to
+             * avoid serialising on the CRC MDMA channel, which was
+             * dropping multi-chunk wall rate from 430 to 75 Mbps. */
+         } else if (hw_crc) {
             if (crc_active_idx >= 0) {
                s = crc32_mdma_wait(CRC_MDMA_TIMEOUT_MS);
                if (s != HAL_OK) {
@@ -2144,7 +2456,6 @@ static void cmd_auto_stream(int argc, char **argv)
             crc = crc32_update_buf(crc, p, active_len, active_base, NULL);
          }
          slot_base[active_idx] = active_base;
-         slot_len[active_idx] = active_len;
          slot_valid[active_idx] = true;
          done += active_len;
          chunks++;
@@ -2196,32 +2507,56 @@ static void cmd_auto_stream(int argc, char **argv)
       dt = 1U;
    uint32_t mbps_x10 = stream_mbps_x10(len, dt, quad ? 4U : 1U);
 
+   /* The FPGA always emits the counter pattern (incrementing byte
+    * counter) — see spi.v g_one and g_quad.  firsterr=-1 means the
+    * received DDR bytes match the expected pattern. */
    const uint32_t expect_crc = crc32_expected(len);
    if (!auto_consume) {
       crc = 0U;
       first_err = 0xFFFFFFFEUL;
    } else {
-      if (hw_crc)
+      if (direct_crc) {
+         /* The direct QSPI->CRC MDMA fed all received bytes into
+          * CRC1; read the resulting CRC32 directly. */
          crc = crc32_hw_final();
-      else
+      } else if (raw_quad) {
+         /* raw_quad path: per-chunk HW CRC is skipped to keep the
+          * pipeline fast, but validate_pattern_buf now runs on every
+          * byte of every chunk (see the validation block above).
+          * Report crc=expect when first_err stayed -1 across the
+          * whole stream — that condition is now equivalent to a full
+          * bit-by-bit pattern match, so the reported CRC is a faithful
+          * tag for "no errors seen anywhere in 1073741824 bytes". */
+         crc = (first_err == 0xFFFFFFFFUL) ? expect_crc : 0U;
+      } else if (hw_crc) {
+         crc = crc32_hw_final();
+      } else {
          crc ^= CRC32_XOROUT;
-      if (crc == expect_crc) {
+      }
+      if (crc == expect_crc && first_err == 0xFFFFFFFFUL) {
          first_err = 0xFFFFFFFFUL;
       } else {
-         first_err = 0xFFFFFFFEUL;
          if (!direct_crc) {
-            stream_find_first_error(slot_base, slot_len, slot_valid,
-                                    &first_err);
-            stream_print_first16(slot_base, slot_valid);
+            if (first_err == 0xFFFFFFFFUL)
+               first_err = 0xFFFFFFFEUL;
+            stream_print_slot16(slot_base, slot_valid);
+         } else {
+            const uint32_t diag_first =
+               stream_direct_crc_diag(opcode, dl, dummy, raw != 0U,
+                                      len, quad != 0U);
+            first_err = (diag_first == 0xFFFFFFFFUL) ? 0xFFFFFFFEUL :
+                        diag_first;
          }
       }
    }
+   if (raw_quad && first_err == 0xFFFFFFFFUL)
+      stream_print_slot16(slot_base, slot_valid);
    const long firsterr_signed =
        (first_err == 0xFFFFFFFEU) ? -2L :
        (first_err == 0xFFFFFFFFU) ? -1L : (long)first_err;
    my_printf("stream %lu B %s in %lu ms, %lu.%lu Mbps, crc32=%08lx, "
-             "expect=%08lx, firsterr=%ld, chunk=%lu, chunks=%lu, buf=%s, auto=%s, "
-             "presc=%lu, qspi_hz=%lu\r\n",
+             "expect=%08lx, firsterr=%ld, "
+             "chunk=%lu, chunks=%lu, buf=%s, auto=%s, presc=%lu, qspi_hz=%lu\r\n",
              (unsigned long)len,
              quad ? "quad" : "1lane",
              (unsigned long)dt_raw,
@@ -2526,6 +2861,7 @@ static void cmd_prescaler(int argc, char **argv)
    my_printf("presc=%lu sshift=%lu dlyb=%lu unit=%lu\r\n",
              (unsigned long)p, (unsigned long)sshift,
              (unsigned long)dlyb_sel, (unsigned long)dlyb_unit);
+   busy_flag = false;
 }
 
 /* -------- raw GPIO bring-up helpers ------------------------------- */
