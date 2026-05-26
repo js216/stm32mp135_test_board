@@ -659,7 +659,7 @@ index 4be103710e12..9179ac1d7e32 100644
 +	STM32_CLOCK_CFG(_binding, &(_clk), _sec_id, struct clk_stm32_pll *,\
 +			&clk_stm32_pll_register)
 diff --git a/drivers/clk/stm32/clk-stm32mp13.c b/drivers/clk/stm32/clk-stm32mp13.c
-index 9bc94c3c5df8..83583cdd2870 100644
+index 9bc94c3c5df8..39398ad9609d 100644
 --- a/drivers/clk/stm32/clk-stm32mp13.c
 +++ b/drivers/clk/stm32/clk-stm32mp13.c
 @@ -8,6 +8,7 @@
@@ -1021,33 +1021,33 @@ index 9bc94c3c5df8..83583cdd2870 100644
 +/* Bus clocks */
 +static struct clk_stm32_div pclk1 = {
 +	.div_id = DIV_APB1,
-+	.hw.init = CLK_HW_INIT("pclk1", "ck_mlahb", &clk_stm32_divider_ops, CLK_IGNORE_UNUSED),
++	.hw.init = CLK_HW_INIT("pclk1", "ck_mlahb", &clk_stm32_divider_ops, CLK_IS_CRITICAL),
 +};
 +
 +static struct clk_stm32_div pclk2 = {
 +	.div_id = DIV_APB2,
-+	.hw.init = CLK_HW_INIT("pclk2", "ck_mlahb", &clk_stm32_divider_ops, CLK_IGNORE_UNUSED),
++	.hw.init = CLK_HW_INIT("pclk2", "ck_mlahb", &clk_stm32_divider_ops, CLK_IS_CRITICAL),
 +};
 +
 +static struct clk_stm32_div pclk3 = {
 +	.div_id = DIV_APB3,
-+	.hw.init = CLK_HW_INIT("pclk3", "ck_mlahb", &clk_stm32_divider_ops, CLK_IGNORE_UNUSED),
++	.hw.init = CLK_HW_INIT("pclk3", "ck_mlahb", &clk_stm32_divider_ops, CLK_IS_CRITICAL),
 +};
 +
 +static struct clk_stm32_div pclk4 = {
 +	.div_id = DIV_APB4,
-+	.hw.init = CLK_HW_INIT("pclk4", "ck_axi", &clk_stm32_divider_ops, CLK_IGNORE_UNUSED),
++	.hw.init = CLK_HW_INIT("pclk4", "ck_axi", &clk_stm32_divider_ops, CLK_IS_CRITICAL),
 +};
 +
 +static struct clk_stm32_div pclk5 = {
 +	.div_id = DIV_APB5,
 +	.hw.init = CLK_HW_INIT("pclk5", "ck_axi", &clk_stm32_divider_ops,
-+              CLK_IGNORE_UNUSED),
++              CLK_IS_CRITICAL),
 +};
 +
 +static struct clk_stm32_div pclk6 = {
 +	.div_id = DIV_APB6,
-+	.hw.init = CLK_HW_INIT("pclk6", "ck_mlahb", &clk_stm32_divider_ops, CLK_IGNORE_UNUSED),
++	.hw.init = CLK_HW_INIT("pclk6", "ck_mlahb", &clk_stm32_divider_ops, CLK_IS_CRITICAL),
  };
  
  /* Timer clocks */
@@ -1175,7 +1175,7 @@ index 9bc94c3c5df8..83583cdd2870 100644
 +static struct clk_stm32_mux ck_mpu = {
 +	.mux_id = MUX_MPU,
 +	.hw.init = CLK_HW_INIT_PARENTS("ck_mpu", mpu_src, &clk_stm32_mux_ops,
-+				       CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED),
++				       CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT | CLK_IS_CRITICAL),
 +};
 +
 +static struct clk_stm32_composite ck_axi = {
@@ -1183,7 +1183,7 @@ index 9bc94c3c5df8..83583cdd2870 100644
 +	.mux_id = MUX_AXI,
 +	.div_id = DIV_AXI,
 +	.hw.init = CLK_HW_INIT_PARENTS("ck_axi", axi_src, &clk_stm32_composite_ops,
-+				       CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED),
++				       CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT | CLK_IS_CRITICAL),
 +};
 +
 +static struct clk_stm32_composite ck_mlahb = {
@@ -1191,7 +1191,7 @@ index 9bc94c3c5df8..83583cdd2870 100644
 +	.mux_id = MUX_MLAHB,
 +	.div_id = DIV_MLAHB,
 +	.hw.init = CLK_HW_INIT_PARENTS("ck_mlahb", mlahb_src, &clk_stm32_mlahb_ops,
-+              CLK_IGNORE_UNUSED | CLK_IS_CRITICAL),
++              CLK_IS_CRITICAL),
 +};
 +
  /* Kernel clocks */

@@ -65,8 +65,8 @@
 	};
 
 	chosen {
-		//bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs clk_ignore_unused";
-		bootargs = "root=/dev/mmcblk0p3 rootwait console=tty0 console=ttySTM0,115200 clk_ignore_unused";
+		//bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs";
+		bootargs = "root=/dev/mmcblk0p3 rootwait console=tty0 console=ttySTM0,115200";
 		stdout-path = "serial0:115200n8";
 		#address-cells = <1>;
 		#size-cells = <1>;

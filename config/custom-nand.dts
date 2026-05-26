@@ -4,6 +4,6 @@
 
 / {
 	chosen {
-		bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs console=tty0 console=ttySTM0,115200 clk_ignore_unused";
+		bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs console=tty0 console=ttySTM0,115200";
 	};
 };
