@@ -92,11 +92,37 @@ start_static_iface()
 	ip addr add "$address/$prefix" dev "$iface" || return 1
 }
 
+start_bench_static_iface()
+{
+	iface="$1"
+
+	wait_for_iface "$iface" || return 1
+	mac="$(cat "/sys/class/net/$iface/address" 2>/dev/null)"
+
+	case "$mac" in
+		00:19:b3:12:12:34) address=172.25.0.46 ;;
+		00:19:b3:12:12:36) address=172.25.0.115 ;;
+		*) return 1 ;;
+	esac
+
+	ip link set lo up 2>/dev/null || true
+	killall udhcpc 2>/dev/null || true
+	ip addr flush dev "$iface" 2>/dev/null || true
+	ip link set "$iface" up || return 1
+	ip addr add "$address/16" dev "$iface" || return 1
+	ip route replace default via 172.25.0.1 dev "$iface" 2>/dev/null || true
+	return 0
+}
+
 start_network()
 {
 	if [ "$(iface_method eth0)" = "static" ]; then
 		start_static_iface eth0
 		return $?
+	fi
+
+	if start_bench_static_iface eth0; then
+		return 0
 	fi
 
 	# Run ifup fully detached so DHCP (udhcpc) cannot block boot.

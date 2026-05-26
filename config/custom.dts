@@ -56,6 +56,8 @@
 	aliases {
 		ethernet0 = &eth1;
 		ethernet1 = &eth2;
+		mmc0 = &sdmmc1;
+		mmc1 = &sdmmc2;
 		serial0 = &uart4;
 		serial1 = &usart1;
 		serial2 = &uart8;
@@ -64,7 +66,7 @@
 
 	chosen {
 		//bootargs = "ubi.mtd=rootfs root=ubi0:rootfs rootfstype=ubifs clk_ignore_unused";
-		bootargs = "root=/dev/mmcblk0p3 rootwait clk_ignore_unused";
+		bootargs = "root=/dev/mmcblk0p3 rootwait console=tty0 console=ttySTM0,115200 clk_ignore_unused";
 		stdout-path = "serial0:115200n8";
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -667,7 +669,7 @@
 		uart4: serial@40010000 {
 			compatible = "st,stm32h7-uart";
 			reg = <0x40010000 0x400>;
-			interrupts-extended = <&exti 30 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 53 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc UART4_K>;
 			resets = <&rcc UART4_R>;
 			wakeup-source;
@@ -1194,12 +1196,11 @@
 		};
 
 		etzpc: etzpc@5c007000 {
-			compatible = "st,stm32mp13-sys-bus";
+			compatible = "st,stm32-etzpc", "simple-bus";
 			reg = <0x5c007000 0x400>;
 			#address-cells = <1>;
 			#size-cells = <1>;
-			feature-domain-controller;
-			#feature-domain-cells = <1>;
+			#access-controller-cells = <1>;
 			ranges;
 
 			adc_1: adc@48003000 {
@@ -1212,7 +1213,7 @@
 				#interrupt-cells = <1>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_ADC1_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_ADC1_ID>;
 				status = "disabled";
 
 				adc1: adc@0 {
@@ -1246,7 +1247,7 @@
 				#interrupt-cells = <1>;
 				#address-cells = <1>;
 				#size-cells = <0>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_ADC2_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_ADC2_ID>;
 				status = "disabled";
 
 				adc2: adc@0 {
@@ -1287,7 +1288,7 @@
 				resets = <&rcc DCMIPP_R>;
 				clocks = <&rcc DCMIPP_K>;
 				clock-names = "kclk";
-				feature-domains = <&etzpc STM32MP1_ETZPC_DCMIPP_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_DCMIPP_ID>;
 				status = "disabled";
 			};
 
@@ -1298,7 +1299,7 @@
 					     <GIC_SPI 89 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&rcc LTDC_PX>;
 				clock-names = "lcd";
-				feature-domains = <&etzpc STM32MP1_ETZPC_LTDC_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_LTDC_ID>;
 				pinctrl-names = "default", "sleep";
 				pinctrl-0 = <&ltdc_pins_a>;
 				pinctrl-1 = <&ltdc_sleep_pins_a>;
@@ -1327,7 +1328,7 @@
 				//usb33d-supply = <&scmi_usb33>;
 				//power-domains = <&pd_core>;
 				wakeup-source;
-				feature-domains = <&etzpc STM32MP1_ETZPC_OTG_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_OTG_ID>;
 				status = "disabled";
 			};
 
@@ -1342,7 +1343,7 @@
 				dmas = <&dmamux1 41 0x400 0x5>,
 				       <&dmamux1 42 0x400 0x1>;
 				dma-names = "rx", "tx";
-				feature-domains = <&etzpc STM32MP1_ETZPC_USART1_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_USART1_ID>;
 				status = "disabled";
 			};
 
@@ -1357,7 +1358,7 @@
 				dmas = <&dmamux1 43 0x400 0x5>,
 				       <&dmamux1 44 0x400 0x1>;
 				dma-names = "rx", "tx";
-				feature-domains = <&etzpc STM32MP1_ETZPC_USART2_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_USART2_ID>;
 				status = "disabled";
 			};
 
@@ -1369,7 +1370,7 @@
 				dmas = <&dmamux1 83 0x400 0x01>,
 				       <&dmamux1 84 0x400 0x01>;
 				dma-names = "rx", "tx";
-				feature-domains = <&etzpc STM32MP1_ETZPC_SPI4_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_SPI4_ID>;
 				status = "disabled";
 			};
 
@@ -1384,7 +1385,7 @@
 				dmas = <&dmamux1 83 0x400 0x01>,
 				       <&dmamux1 84 0x400 0x01>;
 				dma-names = "rx", "tx";
-				feature-domains = <&etzpc STM32MP1_ETZPC_SPI4_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_SPI4_ID>;
 				status = "disabled";
 			};
 
@@ -1399,7 +1400,7 @@
 				dmas = <&dmamux1 85 0x400 0x01>,
 				       <&dmamux1 86 0x400 0x01>;
 				dma-names = "rx", "tx";
-				feature-domains = <&etzpc STM32MP1_ETZPC_SPI5_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_SPI5_ID>;
 				status = "disabled";
 			};
 
@@ -1418,7 +1419,7 @@
 				dma-names = "rx", "tx";
 				st,syscfg-fmp = <&syscfg 0x4 0x4>;
 				i2c-analog-filter;
-				feature-domains = <&etzpc STM32MP1_ETZPC_I2C3_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_I2C3_ID>;
 				status = "disabled";
 			};
 
@@ -1437,7 +1438,7 @@
 				dma-names = "rx", "tx";
 				st,syscfg-fmp = <&syscfg 0x4 0x8>;
 				i2c-analog-filter;
-				feature-domains = <&etzpc STM32MP1_ETZPC_I2C4_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_I2C4_ID>;
 				status = "disabled";
 			};
 
@@ -1453,7 +1454,7 @@
 				#size-cells = <0>;
 				st,syscfg-fmp = <&syscfg 0x4 0x10>;
 				i2c-analog-filter;
-				feature-domains = <&etzpc STM32MP1_ETZPC_I2C5_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_I2C5_ID>;
 				pinctrl-names = "default", "sleep";
 				pinctrl-0 = <&i2c5_pins_a>;
 				pinctrl-1 = <&i2c5_sleep_pins_a>;
@@ -1487,7 +1488,7 @@
 				interrupt-names = "global";
 				clocks = <&rcc TIM12_K>;
 				clock-names = "int";
-				feature-domains = <&etzpc STM32MP1_ETZPC_TIM12_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_TIM12_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1512,7 +1513,7 @@
 				interrupt-names = "global";
 				clocks = <&rcc TIM13_K>;
 				clock-names = "int";
-				feature-domains = <&etzpc STM32MP1_ETZPC_TIM13_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_TIM13_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1537,7 +1538,7 @@
 				interrupt-names = "global";
 				clocks = <&rcc TIM14_K>;
 				clock-names = "int";
-				feature-domains = <&etzpc STM32MP1_ETZPC_TIM14_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_TIM14_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1567,7 +1568,7 @@
 				       <&dmamux1 107 0x400 0x1>,
 				       <&dmamux1 108 0x400 0x1>;
 				dma-names = "ch1", "up", "trig", "com";
-				feature-domains = <&etzpc STM32MP1_ETZPC_TIM15_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_TIM15_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1595,7 +1596,7 @@
 				dmas = <&dmamux1 109 0x400 0x1>,
 				       <&dmamux1 110 0x400 0x1>;
 				dma-names = "ch1", "up";
-				feature-domains = <&etzpc STM32MP1_ETZPC_TIM16_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_TIM16_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1623,7 +1624,7 @@
 				dmas = <&dmamux1 111 0x400 0x1>,
 				       <&dmamux1 112 0x400 0x1>;
 				dma-names = "ch1", "up";
-				feature-domains = <&etzpc STM32MP1_ETZPC_TIM17_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_TIM17_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1649,7 +1650,7 @@
 				clock-names = "mux";
 				//power-domains = <&pd_core_ret>;
 				wakeup-source;
-				feature-domains = <&etzpc STM32MP1_ETZPC_LPTIM2_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_LPTIM2_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1685,7 +1686,7 @@
 				clock-names = "mux";
 				//power-domains = <&pd_core_ret>;
 				wakeup-source;
-				feature-domains = <&etzpc STM32MP1_ETZPC_LPTIM3_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_LPTIM3_ID>;
 				status = "disabled";
 
 				pwm {
@@ -1714,7 +1715,7 @@
 				resets = <&rcc HASH1_R>;
 				dmas = <&mdma 30 0x2 0x1000a02 0x0 0x0 0x0>;
 				dma-names = "in";
-				feature-domains = <&etzpc STM32MP1_ETZPC_HASH_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_HASH_ID>;
 				status = "disabled";
 			};
 
@@ -1723,7 +1724,7 @@
 				reg = <0x54004000 0x400>;
 				clocks = <&rcc RNG1_K>;
 				resets = <&rcc RNG1_R>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_RNG_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_RNG_ID>;
 				status = "disabled";
 			};
 
@@ -1739,7 +1740,7 @@
 				#size-cells = <1>;
 				clocks = <&rcc FMC_K>;
 				resets = <&rcc FMC_R>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_FMC_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_FMC_ID>;
 				pinctrl-names = "default";
 				pinctrl-0 = <&fmc_nand_pins>;
 				status = "okay";
@@ -1818,7 +1819,7 @@
 				dma-names = "tx", "rx";
 				clocks = <&rcc QSPI_K>;
 				resets = <&rcc QSPI_R>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_QSPI_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_QSPI_ID>;
 				status = "disabled";
 			};
 
@@ -1835,7 +1836,7 @@
 				cap-sd-highspeed;
 				cap-mmc-highspeed;
 				max-frequency = <50000000>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_SDMMC1_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_SDMMC1_ID>;
 				pinctrl-names = "default", "opendrain", "sleep";
 				pinctrl-0 = <&sdmmc1_b4_pins_a &sdmmc1_clk_pins_a>;
 				pinctrl-1 = <&sdmmc1_b4_od_pins_a &sdmmc1_clk_pins_a>;
@@ -1861,7 +1862,7 @@
 				cap-sd-highspeed;
 				cap-mmc-highspeed;
 				max-frequency = <130000000>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_SDMMC2_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_SDMMC2_ID>;
 				status = "disabled";
 			};
 
@@ -1887,7 +1888,7 @@
 				snps,pbl = <2>;
 				snps,axi-config = <&stmmac_axi_config_1>;
 				snps,tso;
-				feature-domains = <&etzpc STM32MP1_ETZPC_ETH1_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_ETH1_ID>;
 				status = "okay";
 				pinctrl-0 = <&eth1_rmii_pins_a>;
 				pinctrl-1 = <&eth1_rmii_sleep_pins_a>;
@@ -1940,7 +1941,7 @@
 				snps,pbl = <2>;
 				snps,axi-config = <&stmmac_axi_config_2>;
 				snps,tso;
-				feature-domains = <&etzpc STM32MP1_ETZPC_ETH2_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_ETH2_ID>;
 				status = "disabled";
 
 				stmmac_axi_config_2: stmmac-axi-config {
@@ -1960,7 +1961,7 @@
 				resets = <&rcc USBPHY_R>;
 				//vdda1v1-supply = <&scmi_reg11>;
 				//vdda1v8-supply = <&scmi_reg18>;
-				feature-domains = <&etzpc STM32MP1_ETZPC_USBPHYCTRL_ID>;
+				access-controllers = <&etzpc STM32MP1_ETZPC_USBPHYCTRL_ID>;
 				status = "disabled";
 
 				usbphyc_port0: usb-phy@0 {
@@ -2612,7 +2613,7 @@
 				};
 				pins2 {
 					pinmux = <STM32_PINMUX('D', 8, AF8)>; /* UART4_RX */
-					bias-disable;
+					bias-pull-up;
 				};
 			};
 
@@ -2622,7 +2623,7 @@
 				};
 				pins2 {
 					pinmux = <STM32_PINMUX('D', 8, AF8)>; /* UART4_RX */
-					bias-disable;
+					bias-pull-up;
 				};
 			};
 

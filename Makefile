@@ -40,7 +40,18 @@ kernel:
 
 dtb:
 	cp config/$(DTS).dts linux/arch/arm/boot/dts/
-	$(MAKE) -C linux $(LO) $(DTS).dtb
+	gcc -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
+		-I linux/scripts/dtc/include-prefixes \
+		-o linux/arch/arm/boot/dts/.$(DTS).dtb.dts.tmp \
+		linux/arch/arm/boot/dts/$(DTS).dts
+	linux/scripts/dtc/dtc -o linux/arch/arm/boot/dts/$(DTS).dtb \
+		-b 0 -i linux/arch/arm/boot/dts/ \
+		-i linux/scripts/dtc/include-prefixes \
+		-Wno-interrupt_provider -Wno-unique_unit_address \
+		-Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size \
+		-Wno-alias_paths -Wno-graph_child_address \
+		-Wno-simple_bus_reg -@ \
+		linux/arch/arm/boot/dts/.$(DTS).dtb.dts.tmp
 
 save:
 	$(MAKE) -C linux $(LO) savedefconfig
