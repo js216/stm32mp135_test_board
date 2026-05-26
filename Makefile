@@ -49,8 +49,7 @@ dtb:
 		-i linux/scripts/dtc/include-prefixes \
 		-Wno-interrupt_provider -Wno-unique_unit_address \
 		-Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size \
-		-Wno-alias_paths -Wno-graph_child_address \
-		-Wno-simple_bus_reg -@ \
+		-Wno-alias_paths -Wno-simple_bus_reg -@ \
 		linux/arch/arm/boot/dts/.$(DTS).dtb.dts.tmp
 
 save:
