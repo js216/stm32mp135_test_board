@@ -3,6 +3,7 @@
 // usbtmc_gadget.c --- minimal USBTMC/USB488 FunctionFS instrument
 
 #include <errno.h>
+#include <endian.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stdbool.h>
@@ -117,6 +118,24 @@ static int write_all_timeout(int fd, const void *buf, size_t len)
         len -= (size_t)n;
     }
     return 0;
+}
+
+static void ep0_reply_or_die(const void *buf, size_t len, const char *what)
+{
+    ssize_t n;
+
+    do {
+        n = write(ep0, buf, len);
+    } while (n < 0 && errno == EINTR);
+
+    if (n < 0) {
+        perror(what);
+        exit(1);
+    }
+    if ((size_t)n != len) {
+        fprintf(stderr, "%s: short ep0 reply: %zd/%zu\n", what, n, len);
+        exit(1);
+    }
 }
 
 static void write_descriptors(void)
@@ -378,11 +397,16 @@ static void handle_setup(const struct usb_ctrlrequest *s)
     uint8_t type = s->bRequestType;
     uint8_t req = s->bRequest;
     uint8_t data[24] = {0};
+    uint16_t len = le16toh(s->wLength);
+
+    fprintf(stderr,
+            "setup type=0x%02x req=%u value=0x%04x index=0x%04x len=%u\n",
+            type, req, le16toh(s->wValue), le16toh(s->wIndex), len);
 
     if ((type & USB_TYPE_MASK) != USB_TYPE_CLASS ||
         (type & USB_RECIP_MASK) != USB_RECIP_INTERFACE) {
         if (type & USB_DIR_IN)
-            (void)write(ep0, NULL, 0);
+            ep0_reply_or_die(NULL, 0, "standard IN setup");
         else
             (void)read(ep0, data, 0);
         return;
@@ -398,11 +422,11 @@ static void handle_setup(const struct usb_ctrlrequest *s)
         data[13] = 0x01;
         data[14] = 0x0d;
         data[15] = 0x05;
-        size_t n = s->wLength < sizeof(data) ? s->wLength : sizeof(data);
-        write_all_or_die(ep0, data, n, "GET_CAPABILITIES");
+        size_t n = len < sizeof(data) ? len : sizeof(data);
+        ep0_reply_or_die(data, n, "GET_CAPABILITIES");
     } else if (type & USB_DIR_IN) {
         data[0] = USBTMC_STATUS_SUCCESS;
-        write_all_or_die(ep0, data, s->wLength ? 1 : 0, "class IN");
+        ep0_reply_or_die(data, len ? 1 : 0, "class IN");
     } else {
         (void)read(ep0, data, 0);
     }
@@ -410,13 +434,14 @@ static void handle_setup(const struct usb_ctrlrequest *s)
 
 static void open_eps(void)
 {
-    ep_out = open(FFS_DIR "/ep1", O_RDONLY | O_NONBLOCK);
-    ep_in = open(FFS_DIR "/ep2", O_WRONLY | O_NONBLOCK);
-    ep_intr = open(FFS_DIR "/ep3", O_WRONLY | O_NONBLOCK);
+    ep_out = open(FFS_DIR "/ep1", O_RDWR | O_NONBLOCK);
+    ep_in = open(FFS_DIR "/ep2", O_RDWR | O_NONBLOCK);
+    ep_intr = open(FFS_DIR "/ep3", O_RDWR | O_NONBLOCK);
     if (ep_out < 0 || ep_in < 0 || ep_intr < 0) {
         perror("open endpoints");
         exit(1);
     }
+    fprintf(stderr, "endpoints open\n");
 }
 
 int main(void)
@@ -435,6 +460,7 @@ int main(void)
 
     write_descriptors();
     puts("usbtmc_gadget: descriptors written");
+    open_eps();
     int ready = open(READY_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (ready >= 0) {
         write_all_or_die(ready, "ready\n", 6, "ready");
@@ -447,7 +473,7 @@ int main(void)
 
     for (;;) {
         struct pollfd pfd[2] = {
-            {.fd = ep0, .events = POLLIN},
+            {.fd = ep0, .events = POLLIN | POLLERR | POLLHUP},
             {.fd = ep_out, .events = POLLIN},
         };
         int nfds = ep_out >= 0 ? 2 : 1;
@@ -467,15 +493,11 @@ int main(void)
                  off += sizeof(ev[0])) {
                 struct usb_functionfs_event *e =
                     (struct usb_functionfs_event *)((uint8_t *)ev + off);
-                if (e->type == FUNCTIONFS_ENABLE && ep_out < 0)
-                    open_eps();
-                else if (e->type == FUNCTIONFS_SETUP)
+                fprintf(stderr, "event type=%u\n", e->type);
+                if (e->type == FUNCTIONFS_SETUP)
                     handle_setup(&e->u.setup);
                 else if (e->type == FUNCTIONFS_DISABLE && ep_out >= 0) {
-                    close(ep_out);
-                    close(ep_in);
-                    close(ep_intr);
-                    ep_out = ep_in = ep_intr = -1;
+                    fprintf(stderr, "function disabled\n");
                 }
             }
         }

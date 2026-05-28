@@ -14,6 +14,7 @@ READY=/run/usbtmc_gadget.ready
 
 fail()
 {
+    rm -f "$READY"
     echo "S52usbtmc-gadget: $*" >&2
     exit 1
 }
@@ -36,9 +37,15 @@ case "$1" in
         printf '0x00\n' > "$GADGET/bDeviceSubClass" || fail "bDeviceSubClass"
         printf '0x00\n' > "$GADGET/bDeviceProtocol" || fail "bDeviceProtocol"
 
+        model=$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)
+        case "$model" in
+            *Custom*) serial=custom-linux-usbtmc-0001 ;;
+            *) serial=evb-linux-usbtmc-0001 ;;
+        esac
+
         printf 'STMicroelectronics\n' > "$STRINGS/manufacturer" || fail "manufacturer"
         printf 'STM32MP135 Linux USBTMC\n' > "$STRINGS/product" || fail "product"
-        printf 'evb-linux-usbtmc-0001\n' > "$STRINGS/serialnumber" || fail "serial"
+        printf '%s\n' "$serial" > "$STRINGS/serialnumber" || fail "serial"
         printf 'USBTMC USB488\n' > "$CONFIG_STRINGS/configuration" || fail "configuration"
 
         mkdir -p "$FUNCTION" || fail "mkdir function"
@@ -60,9 +67,12 @@ case "$1" in
         done
         test -s "$READY" || fail "daemon did not become ready"
 
-        udc=$(ls /sys/class/udc 2>/dev/null | head -n 1) || fail "find udc"
+        set -- /sys/class/udc/*
+        udc=${1##*/}
+        test "$udc" != "*" || udc=
         test -n "$udc" || fail "empty udc"
         printf '%s' "$udc" > "$GADGET/UDC" || fail "bind udc"
+        printf 'ready\n' > "$READY" || fail "ready"
         echo USBTMC_GADGET_READY
         ;;
 esac
