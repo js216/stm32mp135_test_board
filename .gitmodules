@@ -3,7 +3,7 @@
 	url = git@github.com:js216/stm32mp135-bootloader.git
 [submodule "linux"]
 	path = linux
-	url = git@github.com:STMicroelectronics/linux.git
+	url = https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 [submodule "buildroot"]
 	path = buildroot
 	url = https://gitlab.com/buildroot.org/buildroot.git
