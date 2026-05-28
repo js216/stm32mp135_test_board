@@ -6,9 +6,9 @@ DTS = custom
 
 LO = ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
 
-.PHONY: all boot patch keys kernel dtb save br sd nand copy clean
+.PHONY: all boot patch keys kernel dtb save br usbtmc-gadget rootfs sd nand copy clean
 
-all: boot kernel dtb br sd copy
+all: boot kernel dtb br usbtmc-gadget rootfs sd copy
 
 boot:
 	$(MAKE) -C bootloader clean
@@ -56,11 +56,22 @@ save:
 	$(MAKE) -C linux $(LO) savedefconfig
 	cp linux/defconfig config/linux.conf
 
+usbtmc-gadget:
+	mkdir -p build buildroot/output/target/usr/local/bin
+	buildroot/output/host/bin/arm-buildroot-linux-uclibcgnueabihf-gcc \
+		-O2 -Wall -Wextra \
+		-o build/usbtmc_gadget tools/usbtmc_gadget.c
+	cp build/usbtmc_gadget buildroot/output/target/usr/local/bin/usbtmc_gadget
+
 br: keys
 	$(MAKE) -C buildroot BR2_DEFCONFIG=../config/buildroot.conf defconfig
 	$(MAKE) -C buildroot
 
-sd: br dtb
+rootfs:
+	rm -f buildroot/output/images/rootfs.*
+	$(MAKE) -C buildroot
+
+sd:
 	python3 bootloader/scripts/sdimage.py \
 		buildroot/output/images/sdcard.img \
 		bootloader/build/main.stm32 \

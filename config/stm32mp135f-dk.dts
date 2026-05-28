@@ -793,12 +793,6 @@
 				connector {
 					compatible = "usb-c-connector";
 					label = "USB-C";
-
-					port {
-						con_usb_c_g0_ep: endpoint {
-							remote-endpoint = <&usbotg_hs_ep>;
-						};
-					};
 				};
 			};
 		};
@@ -1472,11 +1466,11 @@
 				clock-names = "otg";
 				resets = <&rcc USBO_R>;
 				reset-names = "dwc2";
-				interrupts-extended = <&exti 44 IRQ_TYPE_LEVEL_HIGH>;
+				interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_HIGH>;
 				g-rx-fifo-size = <512>;
 				g-np-tx-fifo-size = <32>;
 				g-tx-fifo-size = <256 16 16 16 16 16 16 16>;
-				dr_mode = "otg";
+				dr_mode = "peripheral";
 				otg-rev = <0x200>;
 				//usb33d-supply = <&scmi_usb33>;
 				//power-domains = <&pd_core>;
@@ -1484,13 +1478,7 @@
 				access-controllers = <&etzpc STM32MP1_ETZPC_OTG_ID>;
 				phys = <&usbphyc_port1 0>;
 				phy-names = "usb2-phy";
-				usb-role-switch;
 				status = "okay";
-				port {
-					usbotg_hs_ep: endpoint {
-						remote-endpoint = <&con_usb_c_g0_ep>;
-					};
-				};
 			};
 
 			usart1: serial@4c000000 {

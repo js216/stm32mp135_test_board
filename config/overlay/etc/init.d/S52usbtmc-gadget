@@ -1,0 +1,70 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jakob Kastelic
+# Create the Linux USBTMC USB488 FunctionFS gadget.
+
+GADGET=/sys/kernel/config/usb_gadget/usbtmc
+STRINGS=$GADGET/strings/0x409
+CONFIG=$GADGET/configs/c.1
+CONFIG_STRINGS=$CONFIG/strings/0x409
+FFS=/dev/ffs-usbtmc
+FUNCTION=$GADGET/functions/ffs.usbtmc
+DAEMON=/usr/local/bin/usbtmc_gadget
+READY=/run/usbtmc_gadget.ready
+
+fail()
+{
+    echo "S52usbtmc-gadget: $*" >&2
+    exit 1
+}
+
+case "$1" in
+    start)
+        test -x "$DAEMON" || fail "missing $DAEMON"
+        test -d /sys/kernel/config/usb_gadget || fail "missing configfs usb_gadget"
+
+        mkdir -p "$GADGET" "$STRINGS" "$CONFIG" "$CONFIG_STRINGS" || fail "mkdir gadget"
+        if test -s "$GADGET/UDC"; then
+            printf '' > "$GADGET/UDC" 2>/dev/null || true
+        fi
+
+        printf '0x0483\n' > "$GADGET/idVendor" || fail "idVendor"
+        printf '0x571e\n' > "$GADGET/idProduct" || fail "idProduct"
+        printf '0x0100\n' > "$GADGET/bcdDevice" || fail "bcdDevice"
+        printf '0x0200\n' > "$GADGET/bcdUSB" || fail "bcdUSB"
+        printf '0x00\n' > "$GADGET/bDeviceClass" || fail "bDeviceClass"
+        printf '0x00\n' > "$GADGET/bDeviceSubClass" || fail "bDeviceSubClass"
+        printf '0x00\n' > "$GADGET/bDeviceProtocol" || fail "bDeviceProtocol"
+
+        printf 'STMicroelectronics\n' > "$STRINGS/manufacturer" || fail "manufacturer"
+        printf 'STM32MP135 Linux USBTMC\n' > "$STRINGS/product" || fail "product"
+        printf 'evb-linux-usbtmc-0001\n' > "$STRINGS/serialnumber" || fail "serial"
+        printf 'USBTMC USB488\n' > "$CONFIG_STRINGS/configuration" || fail "configuration"
+
+        mkdir -p "$FUNCTION" || fail "mkdir function"
+        printf '0\n' > "$CONFIG/MaxPower" || fail "MaxPower"
+        test -e "$CONFIG/ffs.usbtmc" || ln -s "$FUNCTION" "$CONFIG/ffs.usbtmc" || fail "link function"
+
+        mkdir -p "$FFS" || fail "mkdir $FFS"
+        if ! grep -qs " $FFS functionfs " /proc/mounts; then
+            mount -t functionfs usbtmc "$FFS" || fail "mount functionfs"
+        fi
+
+        rm -f "$READY"
+        "$DAEMON" >/var/log/usbtmc_gadget.log 2>&1 &
+        for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+            21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 \
+            41 42 43 44 45 46 47 48 49 50; do
+            test -s "$READY" && break
+            sleep 0.1
+        done
+        test -s "$READY" || fail "daemon did not become ready"
+
+        udc=$(ls /sys/class/udc 2>/dev/null | head -n 1) || fail "find udc"
+        test -n "$udc" || fail "empty udc"
+        printf '%s' "$udc" > "$GADGET/UDC" || fail "bind udc"
+        echo USBTMC_GADGET_READY
+        ;;
+esac
+
+exit 0
