@@ -59,7 +59,7 @@ save:
 usbtmc-gadget:
 	mkdir -p build buildroot/output/target/usr/local/bin
 	buildroot/output/host/bin/arm-buildroot-linux-uclibcgnueabihf-gcc \
-		-O2 -Wall -Wextra \
+		-O2 -Wall -Wextra -pthread \
 		-o build/usbtmc_gadget tools/usbtmc_gadget.c
 	cp build/usbtmc_gadget buildroot/output/target/usr/local/bin/usbtmc_gadget
 

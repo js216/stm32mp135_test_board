@@ -6,6 +6,7 @@
 #include <endian.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -332,8 +333,11 @@ static void handle_bulk_out(void)
 {
     ssize_t n = read(ep_out, bulk_out, sizeof(bulk_out));
     if (n < 0) {
-        if (errno != EINTR && errno != EAGAIN)
+        if (errno != EINTR && errno != EAGAIN) {
             perror("read ep_out");
+            /* Avoid a busy spin if the endpoint is transiently down. */
+            usleep(5000);
+        }
         return;
     }
     if (n < 12)
@@ -432,9 +436,24 @@ static void handle_setup(const struct usb_ctrlrequest *s)
     }
 }
 
+static void *bulk_thread(void *arg)
+{
+    (void)arg;
+    for (;;)
+        handle_bulk_out();
+    return NULL;
+}
+
 static void open_eps(void)
 {
-    ep_out = open(FFS_DIR "/ep1", O_RDWR | O_NONBLOCK);
+    /*
+     * ep_out is opened blocking and serviced from a dedicated thread: ffs
+     * data-endpoint reads always wait for transfer completion (O_NONBLOCK
+     * only short-circuits the not-yet-enabled case), and ffs epfiles expose
+     * no ->poll, so a poll()-driven read on ep_out from the ep0 loop would
+     * always appear "readable" and then block, starving control transfers.
+     */
+    ep_out = open(FFS_DIR "/ep1", O_RDWR);
     ep_in = open(FFS_DIR "/ep2", O_RDWR | O_NONBLOCK);
     ep_intr = open(FFS_DIR "/ep3", O_RDWR | O_NONBLOCK);
     if (ep_out < 0 || ep_in < 0 || ep_intr < 0) {
@@ -471,37 +490,35 @@ int main(void)
         return 1;
     }
 
+    /*
+     * Service bulk OUT in its own thread. ep0 control transfers (e.g. the
+     * USBTMC GET_CAPABILITIES the host issues at probe) must never wait
+     * behind a blocking bulk read, or the host times out (-110).
+     */
+    pthread_t bulk_tid;
+    if (pthread_create(&bulk_tid, NULL, bulk_thread, NULL) != 0) {
+        perror("pthread_create");
+        return 1;
+    }
+
     for (;;) {
-        struct pollfd pfd[2] = {
-            {.fd = ep0, .events = POLLIN | POLLERR | POLLHUP},
-            {.fd = ep_out, .events = POLLIN},
-        };
-        int nfds = ep_out >= 0 ? 2 : 1;
-        int rc = poll(pfd, nfds, -1);
-        if (rc < 0) {
+        struct usb_functionfs_event ev[4];
+        ssize_t n = read(ep0, ev, sizeof(ev));
+        if (n < 0) {
             if (errno == EINTR)
                 continue;
-            perror("poll");
+            perror("read ep0");
             return 1;
         }
-        if (pfd[0].revents & POLLIN) {
-            struct usb_functionfs_event ev[4];
-            ssize_t n = read(ep0, ev, sizeof(ev));
-            if (n < 0)
-                continue;
-            for (ssize_t off = 0; off + (ssize_t)sizeof(ev[0]) <= n;
-                 off += sizeof(ev[0])) {
-                struct usb_functionfs_event *e =
-                    (struct usb_functionfs_event *)((uint8_t *)ev + off);
-                fprintf(stderr, "event type=%u\n", e->type);
-                if (e->type == FUNCTIONFS_SETUP)
-                    handle_setup(&e->u.setup);
-                else if (e->type == FUNCTIONFS_DISABLE && ep_out >= 0) {
-                    fprintf(stderr, "function disabled\n");
-                }
-            }
+        for (ssize_t off = 0; off + (ssize_t)sizeof(ev[0]) <= n;
+             off += sizeof(ev[0])) {
+            struct usb_functionfs_event *e =
+                (struct usb_functionfs_event *)((uint8_t *)ev + off);
+            fprintf(stderr, "event type=%u\n", e->type);
+            if (e->type == FUNCTIONFS_SETUP)
+                handle_setup(&e->u.setup);
+            else if (e->type == FUNCTIONFS_DISABLE)
+                fprintf(stderr, "function disabled\n");
         }
-        if (ep_out >= 0 && (pfd[1].revents & POLLIN))
-            handle_bulk_out();
     }
 }
