@@ -44,6 +44,9 @@ static unsigned ese;
 static unsigned sre;
 static unsigned esr;
 static char last_error[128] = "0,\"No error\"";
+/* Deterministic PRBS stream state for DATA:PRBS? bulk-IN transfers. */
+static uint32_t prbs_state;
+static size_t prbs_remaining;
 
 struct __attribute__((packed)) descriptors {
     struct usb_functionfs_descs_head_v2 header;
@@ -254,15 +257,15 @@ static void set_response_text(const char *s)
     memcpy(response, s, response_len);
 }
 
-static void set_response_prbs(size_t n, uint32_t seed)
+/*
+ * Fill buf with n PRBS bytes, one xorshift32 step per byte emitting the
+ * low 8 bits of the new state. Bit-identical to test_serv/plugins/_prbs.py
+ * so the host can verify SHA-256/CRC32 against a known generator.
+ */
+static void prbs_fill(uint8_t *buf, size_t n)
 {
-    uint32_t state = seed;
-    response_len = n > sizeof(response) ? sizeof(response) : n;
-    for (size_t i = 0; i < response_len; i++) {
-        if ((i & 3) == 0)
-            xorshift32(&state);
-        response[i] = (uint8_t)(state >> (8 * (i & 3)));
-    }
+    for (size_t i = 0; i < n; i++)
+        buf[i] = (uint8_t)(xorshift32(&prbs_state) & 0xff);
 }
 
 static void handle_scpi(char *cmd)
@@ -322,7 +325,9 @@ static void handle_scpi(char *cmd)
         strcpy(last_error, "0,\"No error\"");
     } else if (!strncmp(p, "DATA:PRBS? ", 11)) {
         unsigned long n = strtoul(p + 11, NULL, 0);
-        set_response_prbs(n, 0x12345678);
+        prbs_state = 0x12345678;
+        prbs_remaining = n;
+        response_len = 0;
     } else {
         set_error(p);
         response_len = 0;
@@ -367,7 +372,14 @@ static void handle_bulk_out(void)
                         ((uint32_t)bulk_out[5] << 8) |
                         ((uint32_t)bulk_out[6] << 16) |
                         ((uint32_t)bulk_out[7] << 24);
-        size_t nresp = response_len < want ? response_len : want;
+        size_t avail = prbs_remaining > 0 ? prbs_remaining : response_len;
+        if (avail > MAX_RESP)
+            avail = MAX_RESP;
+        size_t nresp = avail < want ? avail : want;
+        if (prbs_remaining > 0) {
+            prbs_fill(response, nresp);
+            prbs_remaining -= nresp;
+        }
         size_t pad = (4 - (nresp & 3)) & 3;
         uint8_t hdr[12] = {
             USBTMC_MSGID_REQUEST_DEV_DEP_MSG_IN,
