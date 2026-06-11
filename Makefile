@@ -6,20 +6,13 @@ DTS = custom
 
 LO = ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
 
-.PHONY: all boot patch keys kernel dtb save br usbtmc-gadget rootfs sd nand copy clean
+.PHONY: all boot keys save br usbtmc-gadget rootfs sd nand copy clean
 
-all: boot kernel dtb br usbtmc-gadget rootfs sd copy
+all: boot br usbtmc-gadget rootfs sd copy
 
 boot:
 	$(MAKE) -C bootloader clean
 	$(MAKE) -C bootloader -j$(shell nproc) #CFLAGS_EXTRA="-DEVB"
-
-patch:
-	@if git -C linux apply -R --check ../config/patch.linux 2>/dev/null; then \
-		echo "patch.linux already applied"; \
-	else \
-		git -C linux apply ../config/patch.linux; \
-	fi
 
 # Generate a fresh ed25519 dropbear host key into the overlay if one
 # isn't there already. The file is .gitignored so a rotation never
@@ -32,25 +25,6 @@ keys:
 	else \
 		echo "dropbear host key already present"; \
 	fi
-
-kernel:
-	cp config/linux.conf linux/.config
-	$(MAKE) -C linux $(LO) olddefconfig
-	$(MAKE) -C linux $(LO) -j$(shell nproc) zImage
-
-dtb:
-	cp config/$(DTS).dts linux/arch/arm/boot/dts/
-	gcc -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
-		-I linux/scripts/dtc/include-prefixes \
-		-o linux/arch/arm/boot/dts/.$(DTS).dtb.dts.tmp \
-		linux/arch/arm/boot/dts/$(DTS).dts
-	linux/scripts/dtc/dtc -o linux/arch/arm/boot/dts/$(DTS).dtb \
-		-b 0 -i linux/arch/arm/boot/dts/ \
-		-i linux/scripts/dtc/include-prefixes \
-		-Wno-interrupt_provider -Wno-unique_unit_address \
-		-Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size \
-		-Wno-alias_paths -Wno-simple_bus_reg -@ \
-		linux/arch/arm/boot/dts/.$(DTS).dtb.dts.tmp
 
 save:
 	$(MAKE) -C linux $(LO) savedefconfig
@@ -75,8 +49,8 @@ sd:
 	python3 bootloader/scripts/sdimage.py \
 		buildroot/output/images/sdcard.img \
 		bootloader/build/main.stm32 \
-		--partition linux/arch/arm/boot/zImage \
-		--partition linux/arch/arm/boot/dts/$(DTS).dtb \
+		--partition buildroot/output/images/zImage \
+		--partition buildroot/output/images/$(DTS).dtb \
 		--partition buildroot/output/images/rootfs.ext2
 
 # Pack the V7-on-Armv7 image into the MBR shape `two` expects.  The
@@ -114,8 +88,8 @@ nand:
 	python3 bootloader/scripts/nandimage.py \
 		buildroot/output/images/nand.img \
 		--boot bootloader/build/main.stm32 \
-		--dtb linux/arch/arm/boot/dts/$(DTS).dtb \
-		--kernel linux/arch/arm/boot/zImage \
+		--dtb buildroot/output/images/$(DTS).dtb \
+		--kernel buildroot/output/images/zImage \
 		--rootfs buildroot/output/images/rootfs.ubi
 
 copy:
@@ -129,4 +103,3 @@ clean:
 	rm -rf build
 	$(MAKE) -C bootloader clean
 	$(MAKE) -C buildroot clean
-	$(MAKE) -C linux $(LO) clean
