@@ -109,13 +109,19 @@ static int write_all_timeout(int fd, const void *buf, size_t len)
                 continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 struct pollfd pfd = {.fd = fd, .events = POLLOUT};
-                int rc;
+                int rc, waited = 0;
                 do {
                     rc = poll(&pfd, 1, 5000);
-                } while (rc < 0 && errno == EINTR);
+                    if (rc == 0)
+                        waited += 5000;
+                } while ((rc < 0 && errno == EINTR) ||
+                         (rc == 0 && waited < 30000));
                 if (rc > 0)
                     continue;
             }
+            /* Don't silently drop a frame mid-message: a dropped bulk-IN
+             * frame leaves the host blocked forever (-110). Log it. */
+            fprintf(stderr, "ep_in: write stalled, dropping %zu B\n", len);
             return -1;
         }
         p += n;
@@ -376,9 +382,20 @@ static void handle_bulk_out(void)
         if (avail > MAX_RESP)
             avail = MAX_RESP;
         size_t nresp = avail < want ? avail : want;
+        uint8_t eom;
         if (prbs_remaining > 0) {
             prbs_fill(response, nresp);
             prbs_remaining -= nresp;
+            /*
+             * EOM must mark only the LAST frame of the PRBS stream.
+             * Setting it on every 1 MiB frame told the host the whole
+             * message ended after the first chunk, so multi-frame
+             * (>1 MiB) reads desynced -- corrupt data or a bulk-IN
+             * stall. Single-frame reads (<=1 MiB) are unaffected.
+             */
+            eom = prbs_remaining == 0 ? 1 : 0;
+        } else {
+            eom = 1;
         }
         size_t pad = (4 - (nresp & 3)) & 3;
         uint8_t hdr[12] = {
@@ -390,7 +407,7 @@ static void handle_bulk_out(void)
             (uint8_t)((nresp >> 8) & 0xff),
             (uint8_t)((nresp >> 16) & 0xff),
             (uint8_t)((nresp >> 24) & 0xff),
-            1,
+            eom,
             0,
             0,
             0,

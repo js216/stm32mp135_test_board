@@ -1,152 +1,144 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Jakob Kastelic
-"""Package-free WebSocket receiver for the stream_ws_prbs_stream server.
+"""Minimal WebSocket receiver for stream_ws_prbs_stream tests."""
 
-Connects to a server that, after the WebSocket opening handshake, pushes a
-fixed number of deterministic PRBS bytes as unmasked binary frames (see
-stm32mp135_test_board/tools/stream_ws_prbs_stream.c). Receives exactly
---bytes of payload, computes SHA-256 and CRC32 while reading, and exits
-non-zero unless the digests match the expected values and the wall-time
-payload rate meets --min-rate-Bps. No third-party packages (raw socket +
-hashlib + zlib + base64).
-"""
 import argparse
 import base64
+import binascii
 import hashlib
 import os
 import socket
-import sys
+import struct
 import time
-import zlib
+
+GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-def http_handshake(sock, host, port):
-    key = base64.b64encode(os.urandom(16)).decode()
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--host", required=True)
+    p.add_argument("--port", type=int, required=True)
+    p.add_argument("--bytes", type=int, required=True)
+    p.add_argument("--min-rate-Bps", type=float, default=0)
+    p.add_argument("--expect-sha256")
+    p.add_argument("--expect-crc32")
+    p.add_argument("--timeout", type=float, default=30.0)
+    return p.parse_args()
+
+
+def recv_exact(sock, n):
+    chunks = []
+    got = 0
+    while got < n:
+        b = sock.recv(n - got)
+        if not b:
+            raise EOFError("unexpected EOF")
+        chunks.append(b)
+        got += len(b)
+    return b"".join(chunks)
+
+
+def handshake(sock, host, port):
+    raw_key = os.urandom(16)
+    key = base64.b64encode(raw_key).decode("ascii")
     req = (
-        "GET / HTTP/1.1\r\n"
+        f"GET / HTTP/1.1\r\n"
         f"Host: {host}:{port}\r\n"
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {key}\r\n"
         "Sec-WebSocket-Version: 13\r\n"
         "\r\n"
-    )
-    sock.sendall(req.encode())
+    ).encode("ascii")
+    sock.sendall(req)
 
-    # Read response headers; keep any frame bytes that arrive in the same recv.
-    buf = b""
-    while b"\r\n\r\n" not in buf:
-        chunk = sock.recv(4096)
-        if not chunk:
-            raise RuntimeError("server closed during handshake")
-        buf += chunk
-    head, _, leftover = buf.partition(b"\r\n\r\n")
-    status = head.split(b"\r\n", 1)[0]
-    if b"101" not in status:
-        raise RuntimeError("bad handshake status: %r" % status)
-    # Verify Sec-WebSocket-Accept (defensive; RFC 6455 GUID).
-    accept = base64.b64encode(
-        hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode())
-        .digest()
-    ).decode()
-    if accept.encode() not in head:
-        raise RuntimeError("Sec-WebSocket-Accept mismatch")
-    return leftover
+    data = b""
+    while b"\r\n\r\n" not in data:
+        data += sock.recv(4096)
+        if not data:
+            raise RuntimeError("no handshake response")
+        if len(data) > 16384:
+            raise RuntimeError("oversized handshake response")
+
+    header = data.decode("iso-8859-1")
+    lines = header.split("\r\n")
+    if not lines[0].startswith("HTTP/1.1 101"):
+        raise RuntimeError(f"bad handshake status: {lines[0]}")
+    headers = {}
+    for line in lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    expect = base64.b64encode(hashlib.sha1((key + GUID).encode("ascii")).digest()).decode("ascii")
+    if headers.get("sec-websocket-accept") != expect:
+        raise RuntimeError("bad Sec-WebSocket-Accept")
 
 
-class Reader:
-    """Buffered reader over a socket, seeded with handshake leftover."""
+def recv_frame(sock):
+    h = recv_exact(sock, 2)
+    b0, b1 = h[0], h[1]
+    opcode = b0 & 0x0F
+    masked = bool(b1 & 0x80)
+    n = b1 & 0x7F
+    if n == 126:
+        n = struct.unpack("!H", recv_exact(sock, 2))[0]
+    elif n == 127:
+        n = struct.unpack("!Q", recv_exact(sock, 8))[0]
+    mask = recv_exact(sock, 4) if masked else None
+    payload = recv_exact(sock, n)
+    if mask:
+        payload = bytes(c ^ mask[i & 3] for i, c in enumerate(payload))
+    return opcode, payload
 
-    def __init__(self, sock, leftover=b""):
-        self.sock = sock
-        self.buf = bytearray(leftover)
 
-    def read_exact(self, n):
-        while len(self.buf) < n:
-            chunk = self.sock.recv(max(65536, n - len(self.buf)))
-            if not chunk:
-                raise RuntimeError("server closed mid-frame")
-            self.buf += chunk
-        out = bytes(self.buf[:n])
-        del self.buf[:n]
-        return out
+def parse_crc32(s):
+    if s is None:
+        return None
+    return int(s, 0) & 0xFFFFFFFF
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, required=True)
-    ap.add_argument("--bytes", type=int, required=True)
-    ap.add_argument("--min-rate-Bps", type=float, default=1.0)
-    ap.add_argument("--expect-sha256", default=None)
-    ap.add_argument("--expect-crc32", default=None)
-    args = ap.parse_args()
-
-    sock = socket.create_connection((args.host, args.port), timeout=30)
-    sock.settimeout(30)
-    leftover = http_handshake(sock, args.host, args.port)
-    rd = Reader(sock, leftover)
-
+    args = parse_args()
+    want_crc = parse_crc32(args.expect_crc32)
     sha = hashlib.sha256()
     crc = 0
-    got = 0
-    t0 = None
-    while got < args.bytes:
-        h = rd.read_exact(2)
-        opcode = h[0] & 0x0F
-        masked = (h[1] & 0x80) != 0
-        ln = h[1] & 0x7F
-        if ln == 126:
-            ln = int.from_bytes(rd.read_exact(2), "big")
-        elif ln == 127:
-            ln = int.from_bytes(rd.read_exact(8), "big")
-        mask = rd.read_exact(4) if masked else None
-        payload = rd.read_exact(ln) if ln else b""
-        if mask:
-            payload = bytes(b ^ mask[i & 3] for i, b in enumerate(payload))
+    total = 0
 
-        if opcode == 0x8:  # close
-            break
-        if opcode not in (0x1, 0x2, 0x0):  # ping/pong/other: ignore
-            continue
-        if not payload:
-            continue
-        if t0 is None:
-            t0 = time.monotonic()
-        take = min(len(payload), args.bytes - got)
-        chunk = payload[:take]
-        sha.update(chunk)
-        crc = zlib.crc32(chunk, crc)
-        got += take
+    start = time.monotonic()
+    with socket.create_connection((args.host, args.port), timeout=args.timeout) as sock:
+        sock.settimeout(args.timeout)
+        handshake(sock, args.host, args.port)
+        while total < args.bytes:
+            opcode, payload = recv_frame(sock)
+            if opcode == 0x8:
+                raise RuntimeError("websocket closed before expected byte count")
+            if opcode not in (0x0, 0x2):
+                raise RuntimeError(f"unexpected opcode {opcode}")
+            need = args.bytes - total
+            if len(payload) > need:
+                raise RuntimeError("received more payload than expected")
+            sha.update(payload)
+            crc = binascii.crc32(payload, crc)
+            total += len(payload)
 
-    elapsed = (time.monotonic() - t0) if t0 else 0.0
-    crc &= 0xFFFFFFFF
-    digest = sha.hexdigest()
-    rate = (got / elapsed) if elapsed > 0 else float("inf")
+    elapsed = time.monotonic() - start
+    rate = total / elapsed if elapsed > 0 else float("inf")
+    got_sha = sha.hexdigest()
+    got_crc = crc & 0xFFFFFFFF
 
-    print("ws_recv bytes=%d sha256=%s crc32=0x%08x elapsed=%.3fs rate=%.0f B/s"
-          % (got, digest, crc, elapsed, rate))
+    print(f"received bytes={total} seconds={elapsed:.6f} rate_Bps={rate:.2f}")
+    print(f"sha256={got_sha}")
+    print(f"crc32=0x{got_crc:08x}")
 
-    ok = got == args.bytes
-    if args.expect_sha256 and digest != args.expect_sha256.lower():
-        print("FAIL sha256 mismatch (got %s want %s)" % (digest, args.expect_sha256))
-        ok = False
-    if args.expect_crc32 is not None:
-        want = int(args.expect_crc32, 0) & 0xFFFFFFFF
-        if crc != want:
-            print("FAIL crc32 mismatch (got 0x%08x want 0x%08x)" % (crc, want))
-            ok = False
-    if rate < args.min_rate_Bps:
-        print("FAIL rate %.0f < min %.0f B/s" % (rate, args.min_rate_Bps))
-        ok = False
-
-    try:
-        sock.close()
-    except OSError:
-        pass
-    print("PASS" if ok else "FAIL")
-    sys.exit(0 if ok else 1)
+    if total != args.bytes:
+        raise SystemExit(f"byte count mismatch: got {total}, expected {args.bytes}")
+    if args.expect_sha256 and got_sha.lower() != args.expect_sha256.lower():
+        raise SystemExit("sha256 mismatch")
+    if want_crc is not None and got_crc != want_crc:
+        raise SystemExit("crc32 mismatch")
+    if args.min_rate_Bps and rate < args.min_rate_Bps:
+        raise SystemExit(f"rate too low: {rate:.2f} < {args.min_rate_Bps}")
 
 
 if __name__ == "__main__":

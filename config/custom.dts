@@ -1834,8 +1834,10 @@
 				interrupts = <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&rcc SDMMC1_K>;
 				clock-names = "apb_pclk";
+				/* PLL4_P (50 MHz, HSE-derived) not HSI: the bootloader
+				 * disables HSI after switching the tree to HSE. */
 				assigned-clocks = <&rcc SDMMC1_K>;
-				assigned-clock-parents = <&clk_hsi>;
+				assigned-clock-parents = <&rcc PLL4_P>;
 				resets = <&rcc SDMMC1_R>;
 				cap-sd-highspeed;
 				cap-mmc-highspeed;
