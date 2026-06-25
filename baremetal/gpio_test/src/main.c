@@ -5,6 +5,7 @@
 
 #include "console.h"
 #include "connectivity_mpu_replay.h"
+#include "gpio_custom.h"
 #include "printf.h"
 #include "setup.h"
 #include "stm32mp13xx_hal.h"
@@ -88,6 +89,21 @@ int main(void)
    sysclk_init();
    perclk_init();
    uart4_init();
+
+#ifdef BOARD_CUSTOM
+   /* Custom board: the EVB-specific board GPIO bring-up in gpio_init()
+    * (LCD/ETH/etc.) is neither needed nor safe here -- the discovery sweep
+    * configures only its own pins. Bring up just security gating and the GIC
+    * (UART RX is interrupt driven), with progress markers so any early hang
+    * is pinpointed, then run the sweep (never returns). */
+   my_printf("gpio_test boot uart ok\r\n");
+   etzpc_init();
+   my_printf("gpio_test boot etzpc ok\r\n");
+   gic_init();
+   my_printf("gpio_test boot gic ok\r\n");
+   gpio_custom_run();
+#endif
+
    etzpc_init();
    gic_init();
    gpio_init();

@@ -137,6 +137,17 @@ HAL_StatusTypeDef qspi_mdma_crc_read(uint8_t opcode,
                                      uint32_t crc_dr_addr,
                                      uint32_t timeout_ms);
 
+/* One CS-low QSPI->CRC read of the whole `len` (64 KiB multiple, <=4 GiB),
+ * MDMA re-armed in 256 MiB segments so a free-running FPGA slave is never
+ * reseeded mid-transfer. */
+HAL_StatusTypeDef qspi_mdma_crc_read_long(uint8_t opcode,
+                                          qspi_lines_t data_lines,
+                                          uint8_t dummy_cycles,
+                                          uint32_t len,
+                                          bool raw,
+                                          uint32_t crc_dr_addr,
+                                          uint32_t timeout_ms);
+
 /* Accessors used by the CLI '?' command. */
 uint32_t qspi_get_prescaler(void);
 uint32_t qspi_get_fsize(void);

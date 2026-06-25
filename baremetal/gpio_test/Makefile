@@ -6,6 +6,7 @@ SHARED_APP := ../uart_echo
 DIRS := src
 LOCAL_SRC := \
 	src/main.c \
+	gpio_custom.c \
 	gpio_replay_mpu_stub.c
 SHARED_SRC := \
 	$(SHARED_APP)/src/console.c \
@@ -40,7 +41,17 @@ CFLAGS = \
 	-mfpu=neon-vfpv4 -mfloat-abi=hard -mlittle-endian \
 	-fdata-sections -ffunction-sections \
 	-ffreestanding -fno-common -nostartfiles \
-	-DEVB
+	$(BOARD_DEFINE)
+
+# Board selection: `make` (default) builds the EVB image; `make BOARD=custom`
+# builds for the SRS STM32MP135 PCB (flips board.h to its custom branch and
+# enables the J503 SPI/QUADSPI discovery sweep in gpio_custom.c).
+BOARD ?= evb
+ifeq ($(BOARD),custom)
+BOARD_DEFINE := -DBOARD_CUSTOM
+else
+BOARD_DEFINE := -DEVB
+endif
 
 LFLAGS = \
 	-Wl,--gc-sections \

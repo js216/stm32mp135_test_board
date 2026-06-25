@@ -45,6 +45,13 @@ static int  linelen;
 static bool busy_flag;
 static bool idle_jedec = true;
 static bool auto_consume = true;
+/* When set, the quad raw auto-consume stream uses the direct QSPI->CRC
+ * hardware path (no DDR copy, no DDR read-back) so multi-GB runs are
+ * transfer-bound rather than capped by the CRC DMA reading DDR. Byte
+ * correctness is established on the DDR path; this is for the high-rate
+ * CRC proof. A CRC mismatch falls back to a DDR byte-diagnostic re-read.
+ * Enabled via `a <on> <direct_quad>`. */
+static bool stream_direct_quad = false;
 static bool four_byte_mode;
 static uint32_t pend_confirm_C_until;
 static uint8_t  io_buf[READ_CAP];
@@ -55,6 +62,32 @@ static uint32_t crc32_pattern_prefix[257];
 static bool crc32_pattern_ready;
 static uint32_t pattern_word_table[64];
 static bool pattern_word_table_ready;
+/* Expected payload selector. The FPGA emits either an incrementing byte
+ * counter or, with PRBS_MODE, prbs8(index); this must match the loaded
+ * bitstream. Toggled via `a <on> <direct_quad> <prbs>`; changing it
+ * invalidates the cached CRC/word pattern tables. */
+static bool expect_prbs = false;
+/* Expect the 32-bit-LFSR byte-PRBS payload (spi.nw PRBS32_MODE). Checked
+ * by the combined-matrix CRC, not the 256-periodic tables. Toggled via the
+ * `a` command's 4th arg. */
+static bool expect_prbs32 = false;
+
+/* prbs8: eight unrolled 8-bit Galois LFSR steps (poly mask 0xB8), the
+ * exact mirror of the FPGA prbs8() in spi.nw. */
+static uint8_t prbs8(uint8_t x)
+{
+   for (int k = 0; k < 8; k++)
+      x = (uint8_t)((x >> 1) ^ ((x & 1U) ? 0xB8U : 0x00U));
+   return x;
+}
+
+/* Expected stream byte at byte offset off (256-periodic): the PRBS byte
+ * of the index when expect_prbs, else the raw counter. */
+static uint8_t pattern_byte(uint32_t off)
+{
+   const uint8_t idx = (uint8_t)(off & 0xFFU);
+   return expect_prbs ? prbs8(idx) : idx;
+}
 static bool crc32_hw_ready;
 static bool crc32_hw_checked;
 static bool crc32_hw_available;
@@ -230,7 +263,7 @@ static uint32_t crc32_update_buf(uint32_t crc, const volatile uint8_t *p,
       const uint8_t b = p[i];
       crc = crc32_update_byte(crc, b);
       if (first_err != NULL) {
-         const uint8_t exp = (uint8_t)((base + i) & 0xFFU);
+         const uint8_t exp = pattern_byte(base + i);
          if (b != exp && *first_err == 0xFFFFFFFFUL)
             *first_err = base + i;
       }
@@ -265,10 +298,17 @@ static void crc32_mdma_clear_flags(MDMA_Channel_TypeDef *ch)
                MDMA_CIFCR_CLTCIF;
 }
 
+/* word=true feeds CRC1->DR in 32-bit words with burst DDR reads (the
+ * fast path for multi-MB streams; requires REV_IN=11 via
+ * crc32_hw_reset_word() and a 4-byte-multiple length). word=false keeps
+ * the byte feed (REV_IN=01 via crc32_hw_reset()) for short / unaligned
+ * buffers such as the self-test and flash chunk CRCs. */
 static HAL_StatusTypeDef crc32_mdma_start(const volatile uint8_t *p,
-                                          uint32_t n)
+                                          uint32_t n, bool word)
 {
    if (p == NULL || n == 0U)
+      return HAL_ERROR;
+   if (word && (n & 0x3U))
       return HAL_ERROR;
    if (crc32_mdma_active)
       return HAL_BUSY;
@@ -289,15 +329,22 @@ static HAL_StatusTypeDef crc32_mdma_start(const volatile uint8_t *p,
    else
       trgm = 2U; /* repeated 64 KiB blocks */
 
+   const uint32_t sz     = word ? 2U : 0U;       /* 32-bit vs byte beats */
+   const uint32_t sincos = word ? 2U : 0U;       /* source step = beat sz */
+   /* Word path: 32-beat (128 B) source+dest bursts so each 128 B buffer is
+    * one burst, amortising DDR read latency (byte path keeps single
+    * beats for the short / unaligned self-test and flash CRCs). */
+   const uint32_t sburst = word ? 5U : 0U;
+   const uint32_t dburst = word ? 5U : 0U;
    ch->CTCR =
       (2U << MDMA_CTCR_SINC_Pos) |
       (0U << MDMA_CTCR_DINC_Pos) |
-      (0U << MDMA_CTCR_SSIZE_Pos) |
-      (0U << MDMA_CTCR_DSIZE_Pos) |
-      (0U << MDMA_CTCR_SINCOS_Pos) |
+      (sz << MDMA_CTCR_SSIZE_Pos) |
+      (sz << MDMA_CTCR_DSIZE_Pos) |
+      (sincos << MDMA_CTCR_SINCOS_Pos) |
       (0U << MDMA_CTCR_DINCOS_Pos) |
-      (0U << MDMA_CTCR_SBURST_Pos) |
-      (0U << MDMA_CTCR_DBURST_Pos) |
+      (sburst << MDMA_CTCR_SBURST_Pos) |
+      (dburst << MDMA_CTCR_DBURST_Pos) |
       ((128U - 1U) << MDMA_CTCR_TLEN_Pos) |
       (trgm << MDMA_CTCR_TRGM_Pos) |
       MDMA_CTCR_SWRM;
@@ -367,6 +414,8 @@ static uint32_t crc32_hw_final(void)
    return CRC1->DR ^ CRC32_XOROUT;
 }
 
+static void crc32_hw_reset_word(void);
+
 static bool crc32_hw_begin(void)
 {
    static const uint8_t test[9] = {
@@ -384,7 +433,7 @@ static bool crc32_hw_begin(void)
       __asm volatile("dsb sy" ::: "memory");
 
       crc32_hw_reset();
-      HAL_StatusTypeDef s = crc32_mdma_start(p, sizeof(test));
+      HAL_StatusTypeDef s = crc32_mdma_start(p, sizeof(test), false);
       if (s == HAL_OK)
          s = crc32_mdma_wait(1000U);
       crc32_hw_available =
@@ -394,7 +443,10 @@ static bool crc32_hw_begin(void)
    if (!crc32_hw_available)
       return false;
 
-   crc32_hw_reset();
+   /* Streaming uses the 32-bit word feed (crc32_mdma_start word=true),
+    * so leave the engine in REV_IN=11 word mode; this produces the same
+    * CRC32 as the byte feed (see crc32_hw_begin_direct self-test). */
+   crc32_hw_reset_word();
    return true;
 }
 
@@ -506,6 +558,85 @@ static uint32_t crc32_combine(uint32_t crc1, uint32_t crc2, uint32_t len2)
    return crc1 ^ crc2;
 }
 
+/* ---- 32-bit byte-PRBS expected CRC (matches spi.nw PRBS32_MODE) -------
+ * The FPGA emits a 32-bit Galois LFSR byte stream (mask 0xA3000000, byte =
+ * state&0xFF, 8 steps/byte). To check it without generating gigabytes, we
+ * evolve a combined 64-bit GF(2) state (bits 0..31 = LFSR, 32..63 = the
+ * reflected CRC32 register) by one fixed linear map T per byte, then raise
+ * T to the byte count by squaring -- O(log N). crc = reg ^ 0xFFFFFFFF.
+ * (Verified against zlib in tmp/prbs32_matrix.py.) */
+#define PRBS32_MASK 0xA3000000UL
+#define PRBS32_SEED 0xFFFFFFFFUL
+
+static uint32_t lfsr32_step8(uint32_t s)
+{
+   for (int k = 0; k < 8; k++)
+      s = (s >> 1) ^ ((s & 1U) ? PRBS32_MASK : 0U);
+   return s;
+}
+
+/* One byte of combined evolution, as a linear map on the 64-bit state. */
+static uint64_t prbs32_T_apply(uint64_t v)
+{
+   const uint32_t lf  = (uint32_t)v;
+   const uint32_t reg = (uint32_t)(v >> 32);
+   const uint8_t  byte = (uint8_t)(lf & 0xFFU);
+   const uint32_t reg2 = crc32_update_byte(reg, byte); /* reflected, linear */
+   const uint32_t lf2  = lfsr32_step8(lf);
+   return (uint64_t)lf2 | ((uint64_t)reg2 << 32);
+}
+
+static uint64_t m64_times(const uint64_t *mat, uint64_t vec)
+{
+   uint64_t sum = 0U;
+   for (int i = 0; i < 64 && vec; i++, vec >>= 1)
+      if (vec & 1U)
+         sum ^= mat[i];
+   return sum;
+}
+
+static void m64_matmul(uint64_t *out, const uint64_t *a, const uint64_t *b)
+{
+   for (int j = 0; j < 64; j++)
+      out[j] = m64_times(a, b[j]); /* column j of a*b */
+}
+
+/* Compute crc for `len` LFSR bytes from each seed offset 0..7, returning
+ * the offset whose crc equals `target` (or -1). One T^len power matrix is
+ * built and applied to all eight candidate seeds. */
+static int prbs32_match_offset(uint32_t len, uint32_t target,
+                               uint32_t *crc_out)
+{
+   uint64_t base[64], P[64], tmp[64];
+   crc32_table_init();
+   for (int j = 0; j < 64; j++) {
+      base[j] = prbs32_T_apply(1ULL << j); /* T column j */
+      P[j] = 1ULL << j;                    /* identity */
+   }
+   uint32_t n = len;
+   while (n) {
+      if (n & 1U) {
+         m64_matmul(tmp, base, P);
+         for (int j = 0; j < 64; j++) P[j] = tmp[j];
+      }
+      m64_matmul(tmp, base, base);
+      for (int j = 0; j < 64; j++) base[j] = tmp[j];
+      n >>= 1U;
+   }
+   uint32_t seed = PRBS32_SEED;
+   for (int off = 0; off < 8; off++) {
+      const uint64_t v0 = (uint64_t)seed | ((uint64_t)0xFFFFFFFFUL << 32);
+      const uint64_t vN = m64_times(P, v0);
+      const uint32_t crc = (uint32_t)(vN >> 32) ^ 0xFFFFFFFFUL;
+      if (crc == target) {
+         if (crc_out) *crc_out = crc;
+         return off;
+      }
+      seed = lfsr32_step8(seed);
+   }
+   return -1;
+}
+
 static void crc32_pattern_init(void)
 {
    if (crc32_pattern_ready)
@@ -514,7 +645,7 @@ static void crc32_pattern_init(void)
    uint32_t crc = CRC32_INIT;
    crc32_pattern_prefix[0] = 0U;
    for (uint32_t i = 0U; i < sizeof(crc32_pattern); i++) {
-      crc32_pattern[i] = (uint8_t)i;
+      crc32_pattern[i] = pattern_byte(i);
       crc = crc32_update_byte(crc, crc32_pattern[i]);
       crc32_pattern_prefix[i + 1U] = crc ^ CRC32_XOROUT;
    }
@@ -551,11 +682,9 @@ static uint32_t crc32_expected(uint32_t len)
    return result_crc;
 }
 
-/* CRC32 of `len` bytes of 0xAA.  Used by the raw-quad path which
- * cannot deliver a counter pattern at 109 MHz × 4 lanes without
- * bit errors (Worker K characterisation); the FPGA emits a
- * constant 0xAA on all four IO lanes so the link can be verified
- * for raw quad data integrity.  Uses crc32_combine for O(log N). */
+/* CRC32 of `len` bytes of 0xAA. Expected value for the constant-pattern
+ * raw-quad check, where the FPGA drives 0xAA on all four IO lanes. Uses
+ * crc32_combine for O(log N). */
 static bool     crc32_aa_ready;
 static uint32_t crc32_aa_prefix[257];
 static void crc32_aa_init(void)
@@ -624,10 +753,10 @@ static uint32_t stream_segment_len(uint32_t remaining, uint32_t limit)
 
 static uint32_t pattern_word(uint32_t off)
 {
-   const uint32_t b0 = (off + 0U) & 0xFFU;
-   const uint32_t b1 = (off + 1U) & 0xFFU;
-   const uint32_t b2 = (off + 2U) & 0xFFU;
-   const uint32_t b3 = (off + 3U) & 0xFFU;
+   const uint32_t b0 = pattern_byte(off + 0U);
+   const uint32_t b1 = pattern_byte(off + 1U);
+   const uint32_t b2 = pattern_byte(off + 2U);
+   const uint32_t b3 = pattern_byte(off + 3U);
    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
 }
 
@@ -652,7 +781,7 @@ static void validate_pattern_buf(const volatile uint8_t *p, uint32_t n,
       if (got != pattern_word_table[pat]) {
          for (uint32_t j = 0U; j < 4U; j++) {
             const uint8_t b = p[i + j];
-            const uint8_t exp = (uint8_t)((base + i + j) & 0xFFU);
+            const uint8_t exp = pattern_byte(base + i + j);
             if (b != exp) {
                *first_err = base + i + j;
                return;
@@ -664,7 +793,7 @@ static void validate_pattern_buf(const volatile uint8_t *p, uint32_t n,
    }
    while (i < n) {
       const uint8_t b = p[i];
-      const uint8_t exp = (uint8_t)((base + i) & 0xFFU);
+      const uint8_t exp = pattern_byte(base + i);
       if (b != exp) {
          *first_err = base + i;
          return;
@@ -765,7 +894,7 @@ static void stream_print_firsterr_dump(const volatile uint8_t *p,
    my_printf("\r\nstream_firsterr @%lu xp:",
              (unsigned long)(base + lo));
    for (uint32_t k = lo; k < hi; k++)
-      my_printf(" %02x", (unsigned)((base + k) & 0xFFU));
+      my_printf(" %02x", (unsigned)pattern_byte(base + k));
    my_printf("\r\n");
 }
 
@@ -783,7 +912,7 @@ static bool stream_direct_crc_eligible(uint32_t quad, uint32_t raw)
     * stream_got16/firsterr byte diagnostics. The direct QSPI->CRC path
     * is still useful for 1-lane raw, where byte-level correctness is
     * already established and the CRC feed does not mask nibble issues. */
-   return auto_consume && raw != 0U && quad == 0U;
+   return auto_consume && raw != 0U && (quad == 0U || stream_direct_quad);
 }
 
 static HAL_StatusTypeDef stream_direct_crc_read(uint8_t opcode,
@@ -796,6 +925,19 @@ static HAL_StatusTypeDef stream_direct_crc_read(uint8_t opcode,
 {
    *done = 0U;
    *chunks = 0U;
+   /* PRBS32 needs a bit-continuous stream: the FPGA LFSR reseeds on every
+    * CS, so issue ONE CS-low read for the whole length (MDMA re-armed in
+    * 256 MiB segments). Requires a 64 KiB-multiple length. */
+   if (expect_prbs32 && (len & 0xFFFFU) == 0U) {
+      HAL_StatusTypeDef s =
+         qspi_mdma_crc_read_long(opcode, dl, dummy, len, raw,
+                                 (uint32_t)&CRC1->DR, 120000U);
+      if (s != HAL_OK)
+         return s;
+      *done = len;
+      *chunks = 1U;
+      return HAL_OK;
+   }
    while (*done < len) {
       const uint32_t n = stream_segment_len(len - *done,
                                             STREAM_CHUNK_BYTES);
@@ -2043,7 +2185,7 @@ static void cmd_chunked(int argc, char **argv)
          /* HW CRC of this chunk via DMA. */
          crc32_hw_reset();
          s = crc32_mdma_start((volatile uint8_t *)(dst + buf_off),
-                              chunk_size);
+                              chunk_size, false);
          if (s == HAL_OK)
             s = crc32_mdma_wait(CRC_MDMA_TIMEOUT_MS);
          if (s != HAL_OK)
@@ -2414,30 +2556,21 @@ static void cmd_auto_stream(int argc, char **argv)
             const uint32_t inval_len = raw_quad ? 4096U : active_len;
             qspi_invalidate_range((uint32_t)p, inval_len);
          }
-         if (first_err == 0xFFFFFFFFUL) {
+         /* The uncached CPU byte-validate (~1.6 s per 16 MiB with the
+          * D-cache off) would serialise the whole stream down to
+          * ~80 Mbps.  Run it only on chunk 0 as a byte-level sanity
+          * check; every chunk is then covered bit-for-bit by the
+          * hardware CRC32 (MDMA Channel1, overlaps the QSPI transfer on
+          * Channel0), compared against crc32_expected() at the end. */
+         const bool cpu_validate = !raw_quad || active_base == 0U;
+         if (first_err == 0xFFFFFFFFUL && cpu_validate) {
             const uint32_t before = first_err;
-            /* Always validate every byte of every chunk against the
-             * counter pattern emitted by the iCE40 g_quad (and g_one)
-             * modules.  validate_pattern_buf runs CPU-side concurrent
-             * with the next chunk's QSPI MDMA so this does not slow
-             * throughput; raw_quad's old 1-KiB shortcut was hiding
-             * real link-level corruption (SSO bounces on 0x0F-ish
-             * transitions etc.) past chunk 0 and is not safe to use
-             * as a bit-perfect proof. */
             validate_pattern_buf(p, active_len, active_base, &first_err);
             if (before == 0xFFFFFFFFUL && first_err != 0xFFFFFFFFUL)
                stream_print_firsterr_dump(p, active_len, active_base,
                                           first_err);
          }
-         if (raw_quad) {
-            /* For the raw-quad 0xAA pattern we already validate
-             * chunk 0 byte-by-byte; later chunks rely on the link
-             * being able to carry a constant pattern reliably (the
-             * established 109 MHz × 4-lane property of this FPGA +
-             * MP135 setup).  Skip the per-chunk HW-CRC pipeline to
-             * avoid serialising on the CRC MDMA channel, which was
-             * dropping multi-chunk wall rate from 430 to 75 Mbps. */
-         } else if (hw_crc) {
+         if (hw_crc) {
             if (crc_active_idx >= 0) {
                s = crc32_mdma_wait(CRC_MDMA_TIMEOUT_MS);
                if (s != HAL_OK) {
@@ -2446,7 +2579,7 @@ static void cmd_auto_stream(int argc, char **argv)
                }
                crc_active_idx = -1;
             }
-            s = crc32_mdma_start(p, active_len);
+            s = crc32_mdma_start(p, active_len, true);
             if (s != HAL_OK) {
                crc_dma_error = true;
                break;
@@ -2510,7 +2643,7 @@ static void cmd_auto_stream(int argc, char **argv)
    /* The FPGA always emits the counter pattern (incrementing byte
     * counter) — see spi.v g_one and g_quad.  firsterr=-1 means the
     * received DDR bytes match the expected pattern. */
-   const uint32_t expect_crc = crc32_expected(len);
+   uint32_t expect_crc = expect_prbs32 ? 0U : crc32_expected(len);
    if (!auto_consume) {
       crc = 0U;
       first_err = 0xFFFFFFFEUL;
@@ -2519,21 +2652,21 @@ static void cmd_auto_stream(int argc, char **argv)
          /* The direct QSPI->CRC MDMA fed all received bytes into
           * CRC1; read the resulting CRC32 directly. */
          crc = crc32_hw_final();
-      } else if (raw_quad) {
-         /* raw_quad path: per-chunk HW CRC is skipped to keep the
-          * pipeline fast, but validate_pattern_buf now runs on every
-          * byte of every chunk (see the validation block above).
-          * Report crc=expect when first_err stayed -1 across the
-          * whole stream — that condition is now equivalent to a full
-          * bit-by-bit pattern match, so the reported CRC is a faithful
-          * tag for "no errors seen anywhere in 1073741824 bytes". */
-         crc = (first_err == 0xFFFFFFFFUL) ? expect_crc : 0U;
       } else if (hw_crc) {
          crc = crc32_hw_final();
       } else {
          crc ^= CRC32_XOROUT;
       }
-      if (crc == expect_crc && first_err == 0xFFFFFFFFUL) {
+      if (expect_prbs32) {
+         /* 32-bit PRBS: validate via the combined-matrix CRC, auto-finding
+          * the small alignment seed offset. A match means the received
+          * stream is exactly the LFSR sequence (bit-perfect). */
+         uint32_t m = 0U;
+         const int off = prbs32_match_offset(len, crc, &m);
+         my_printf("prbs32 offset=%d\r\n", off);
+         expect_crc = (off >= 0) ? crc : (crc ^ 0xFFFFFFFFUL);
+         first_err = (off >= 0) ? 0xFFFFFFFFUL : 0xFFFFFFFEUL;
+      } else if (crc == expect_crc && first_err == 0xFFFFFFFFUL) {
          first_err = 0xFFFFFFFFUL;
       } else {
          if (!direct_crc) {
@@ -2582,7 +2715,23 @@ static void cmd_auto_consume(int argc, char **argv)
    }
    uint32_t on = arg_u32(argv[0], auto_consume ? 1U : 0U);
    auto_consume = on ? true : false;
-   my_printf("auto=%s\r\n", auto_consume ? "on" : "off");
+   if (argc > 1)
+      stream_direct_quad = arg_u32(argv[1], 0U) ? true : false;
+   if (argc > 2) {
+      const bool want = arg_u32(argv[2], 0U) ? true : false;
+      if (want != expect_prbs) {
+         expect_prbs = want;
+         crc32_pattern_ready = false;      /* recompute prefix CRC table */
+         pattern_word_table_ready = false; /* recompute word table */
+      }
+   }
+   if (argc > 3)
+      expect_prbs32 = arg_u32(argv[3], 0U) ? true : false;
+   my_printf("auto=%s direct_quad=%s prbs=%s prbs32=%s\r\n",
+             auto_consume ? "on" : "off",
+             stream_direct_quad ? "on" : "off",
+             expect_prbs ? "on" : "off",
+             expect_prbs32 ? "on" : "off");
 }
 
 static void cmd_idle_jedec(int argc, char **argv)
