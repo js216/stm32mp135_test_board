@@ -92,28 +92,6 @@ start_static_iface()
 	ip addr add "$address/$prefix" dev "$iface" || return 1
 }
 
-start_bench_static_iface()
-{
-	iface="$1"
-
-	wait_for_iface "$iface" || return 1
-	mac="$(cat "/sys/class/net/$iface/address" 2>/dev/null)"
-
-	case "$mac" in
-		00:19:b3:12:12:34) address=172.25.0.46 ;;
-		00:19:b3:12:12:36) address=172.25.0.115 ;;
-		*) return 1 ;;
-	esac
-
-	ip link set lo up 2>/dev/null || true
-	killall udhcpc 2>/dev/null || true
-	ip addr flush dev "$iface" 2>/dev/null || true
-	ip link set "$iface" up || return 1
-	ip addr add "$address/16" dev "$iface" || return 1
-	ip route replace default via 172.25.0.1 dev "$iface" 2>/dev/null || true
-	return 0
-}
-
 start_network()
 {
 	if [ "$(iface_method eth0)" = "static" ]; then
@@ -121,18 +99,28 @@ start_network()
 		return $?
 	fi
 
-	if start_bench_static_iface eth0; then
-		return 0
-	fi
-
-	# Run ifup fully detached so DHCP (udhcpc) cannot block boot.
-	# The bench tests do not require networking to be up before the
-	# login prompt, and the slow synchronous wait here was pushing
-	# `buildroot login:` past the mission's blind-delay window after
-	# `jump\r`. Output is redirected to /var/log so a curious operator
-	# can still inspect ifup's progress post-boot.
+	# DHCP --- the board takes a DYNAMIC address from the bench DHCP
+	# server; never a hardcoded static IP. A board that statically
+	# claims an address collides with whatever DHCP later leases that
+	# same address to, which is what was confusing ssh host-key
+	# tracking. udhcpc also writes /etc/resolv.conf from the lease, so
+	# DNS works for free. Missions read the leased address off UART
+	# after login, so wait (bounded) for the lease to land here rather
+	# than racing the login prompt or blocking boot indefinitely.
+	wait_for_iface eth0 || return 1
+	ip link set lo up 2>/dev/null || true
+	ip link set eth0 up 2>/dev/null || true
 	mkdir -p /var/log
-	(/sbin/ifup -a >/var/log/ifup.log 2>&1) &
+	/sbin/ifup -a >/var/log/ifup.log 2>&1 &
+
+	i=0
+	while [ "$i" -lt 12 ]; do
+		if ip -4 -o addr show dev eth0 2>/dev/null | grep -q 'inet '; then
+			break
+		fi
+		sleep 1
+		i=$((i + 1))
+	done
 	return 0
 }
 

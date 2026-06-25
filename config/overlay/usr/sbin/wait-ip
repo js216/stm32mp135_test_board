@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Jakob Kastelic
+# wait-ip --- wait (bounded) for the DHCP lease on eth0, then print its IPv4
+# address so the bench can read it off UART.
+#
+# This lives as a script so the mission types a SHORT command. A long inline
+# command (e.g. an open-coded `while ... ip ... grep ...` loop) overran the
+# STM32 console UART RX ("ttySTM0: input overrun(s)"), arriving corrupted
+# with an unmatched quote and wedging the shell at its PS2 prompt.
+n=0
+while [ "$n" -lt 40 ] && ! ip -4 -o addr show dev eth0 | grep -q 'inet 172'; do
+	sleep 1
+	n=$((n + 1))
+done
+ip -4 -o addr show dev eth0
